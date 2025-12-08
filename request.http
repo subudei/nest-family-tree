@@ -1,0 +1,325 @@
+### Create a new person
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Uros",
+  "lastName": "Nemanjic",
+  "gender": "female",
+  "birthDate": "1250-01-01",
+  "fatherId": 6
+}
+
+### Get all persons
+GET http://localhost:3001/persons
+
+### Get person by name (search)
+GET http://localhost:3001/persons?name=john DOE
+
+### Get a person by ID
+GET http://localhost:3001/persons/2
+
+#########################################
+### VALIDATION TESTS
+#########################################
+
+### First, check what persons exist in DB
+GET http://localhost:3001/persons
+
+###
+### Test 1: Create person with non-existent father (should fail with 404)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Test",
+  "lastName": "Child",
+  "gender": "male",
+  "birthDate": "2020-01-01",
+  "fatherId": 999
+}
+
+### Test 2: Create person with female as father (should fail with 400)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Test",
+  "lastName": "Child",
+  "gender": "male",
+  "birthDate": "2020-01-01",
+  "fatherId": 2
+}
+
+### Test 3: Father born after child (should fail with 400)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Time",
+  "lastName": "Traveler",
+  "gender": "male",
+  "birthDate": "1980-01-01",
+  "fatherId": 1
+}
+
+### Test 4: Father too young (less than 13 years old when child born) (should fail with 400)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Too",
+  "lastName": "Young",
+  "gender": "male",
+  "birthDate": "2002-01-01",
+  "fatherId": 1
+}
+
+### Test 5: Valid person with both parents
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Valid",
+  "lastName": "Child",
+  "gender": "female",
+  "birthDate": "2020-01-01",
+  "fatherId": 1,
+  "motherId": 2,
+  "trivia": "This should work!"
+}
+
+#########################################
+### SETUP: Create test persons first
+#########################################
+
+### Create a male person (potential father)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "TestFather",
+  "lastName": "Male",
+  "gender": "male",
+  "birthDate": "1990-01-01",
+  "progenitor": true
+}
+
+###
+### Create a female person (potential mother)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "TestMother",
+  "lastName": "Female",
+  "gender": "female",
+  "birthDate": "1992-01-01",
+  "progenitor": true
+}
+
+###
+### Create a young male (for age test)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "TooYoung",
+  "lastName": "Dad",
+  "gender": "male",
+  "birthDate": "2010-01-01",
+  "progenitor": true
+}
+
+#########################################
+### COMPREHENSIVE VALIDATION TESTS
+### (Use IDs from persons created above)
+#########################################
+
+### ✅ GENDER VALIDATION: Try to use female as father (should fail with 400)
+### Replace fatherId with ID of TestMother (female) from your GET response
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "GenderTest",
+  "lastName": "Child",
+  "gender": "male",
+  "birthDate": "2020-01-01",
+  "fatherId": 2
+}
+
+###
+### ✅ GENDER VALIDATION: Try to use male as mother (should fail with 400)
+### Replace motherId with ID of TestFather (male) from your GET response
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "GenderTest2",
+  "lastName": "Child",
+  "gender": "female",
+  "birthDate": "2020-01-01",
+  "motherId": 1
+}
+
+###
+### ✅ AGE VALIDATION: Father too young (should fail with 400)
+### Replace fatherId with ID of TooYoung (born 2010) from your GET response
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "AgeTest",
+  "lastName": "Child",
+  "gender": "male",
+  "birthDate": "2020-01-01",
+  "fatherId": 3
+}
+
+###
+### ✅ DATE VALIDATION: Father born after child (should fail with 400)
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "TimeTraveler",
+  "lastName": "Child",
+  "gender": "male",
+  "birthDate": "1985-01-01",
+  "fatherId": 1
+}
+
+###
+### ✅ VALID: Proper child creation
+POST http://localhost:3001/persons
+Content-Type: application/json
+
+{
+  "firstName": "Success",
+  "lastName": "Child",
+  "gender": "female",
+  "birthDate": "2020-01-01",
+  "fatherId": 1,
+  "motherId": 2,
+  "trivia": "All validations pass!"
+}
+
+#########################################
+### DELETE TESTS
+#########################################
+
+### Test DELETE 1: Non-existent person (should fail with 404)
+DELETE http://localhost:3001/persons/999
+
+###
+### Test DELETE 2: Person with children (should fail with 400)
+### Try to delete person ID 1 (John - has child Andrei)
+DELETE http://localhost:3001/persons/4
+
+###
+### Test DELETE 3: Successful deletion (person with no children)
+### Delete Andrei (ID 2 - has no children)
+DELETE http://localhost:3001/persons/3
+
+###
+### Verify deletion worked
+GET http://localhost:3001/persons
+
+#########################################
+### PATCH TESTS
+### Current DB: ID 3 (Nemanja, male, progenitor, born 1200)
+###             ID 5,6,7 (males, children of 3)
+###             ID 11 (Milica, female)
+###             ID 12,13,14 (females)
+#########################################
+
+### PATCH 1: Update basic fields (should succeed 200)
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json    
+
+{
+  "lastName": "UpdatedLastName",
+  "trivia": "Updated trivia info."
+}
+
+###
+### PATCH 2: Assign non-existent father (should fail 404)
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json
+
+{
+  "fatherId": 999
+}
+
+###
+### PATCH 3: Assign female as father (should fail 400)
+### Using Milica (ID 11, female) as father
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json
+
+{
+  "fatherId": 11
+}
+
+###
+### PATCH 4: Assign male as mother (should fail 400)
+### Using Stefan (ID 6, male) as mother
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json
+
+{
+  "motherId": 6
+}
+
+###
+### PATCH 5: Assign father younger than person (should fail 400)
+### Dmitar (ID 8, born 1240) trying to have Vukan (ID 5, born 1220) as father
+### Wait - that's valid! Let's use: Vratko (ID 10, born 1243) as father for Dmitar (born 1240)
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json
+
+{
+  "fatherId": 10
+}
+
+###
+### PATCH 6: Update non-existent person (should fail 404)
+PATCH http://localhost:3001/persons/999
+Content-Type: application/json
+
+{
+  "firstName": "Ghost"
+}
+
+###
+### PATCH 7: Valid mother assignment (should succeed 200)
+### Assign Milica (ID 11, female) as mother to Dmitar (ID 8)
+PATCH http://localhost:3001/persons/8
+Content-Type: application/json
+
+{
+  "motherId": 11
+}
+
+###
+### Verify PATCH worked
+GET http://localhost:3001/persons/8
+
+
+### Get progenitor
+GET http://localhost:3001/persons/progenitor
+
+
+### Promote ancestor - Add father above current progenitor
+POST http://localhost:3001/persons/promote-ancestor
+Content-Type: application/json
+
+{
+  "firstName": "Tihomir",
+  "lastName": "Nemanjic",
+  "gender": "male",
+  "birthDate": "1150-01-01",
+  "currentProgenitorId": 3,
+  "relationship": "father"
+}
