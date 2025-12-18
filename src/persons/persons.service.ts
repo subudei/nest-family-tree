@@ -17,6 +17,41 @@ export class PersonsService {
     private dataSource: DataSource,
   ) {}
 
+  private async wouldCreateAncestryCycle(
+    potentialAncestorId: number,
+    startPersonId: number,
+  ): Promise<boolean> {
+    // Returns true if `potentialAncestorId` appears in the parent-chain of `startPersonId`.
+    // Linking `potentialAncestorId` as a parent of `startPersonId` would then create a cycle.
+    const visited = new Set<number>();
+    const stack: number[] = [startPersonId];
+
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (!currentId) continue;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const current = await this.personRepository.findOneBy({ id: currentId });
+      if (!current) continue;
+
+      const fatherId = current.fatherId;
+      const motherId = current.motherId;
+
+      if (
+        fatherId === potentialAncestorId ||
+        motherId === potentialAncestorId
+      ) {
+        return true;
+      }
+
+      if (fatherId && !visited.has(fatherId)) stack.push(fatherId);
+      if (motherId && !visited.has(motherId)) stack.push(motherId);
+    }
+
+    return false;
+  }
+
   async create(createPersonDto: CreatePersonDto): Promise<Person> {
     // Step 1: Validate that person is connected to the tree
     await this.validateNotOrphan(createPersonDto);
@@ -200,6 +235,26 @@ export class PersonsService {
     const parent = await this.personRepository.findOneBy({ id: parentId });
     if (!parent) {
       throw new NotFoundException(`Parent with ID ${parentId} not found`);
+    }
+
+    // Basic integrity checks
+    if (!childrenIds || childrenIds.length === 0) {
+      throw new BadRequestException('childrenIds is required');
+    }
+
+    if (childrenIds.includes(parentId)) {
+      throw new BadRequestException('A person cannot be their own parent');
+    }
+
+    // Prevent cycles: the child cannot be an ancestor of the chosen parent.
+    // Example cycle: child -> ... -> parent, and then parent becomes child's parent.
+    for (const childId of childrenIds) {
+      const wouldCycle = await this.wouldCreateAncestryCycle(childId, parentId);
+      if (wouldCycle) {
+        throw new BadRequestException(
+          `Cannot link parent ${parentId} to child ${childId}: it would create a cycle`,
+        );
+      }
     }
 
     // Validate parent gender matches parent type
@@ -526,6 +581,31 @@ export class PersonsService {
       updatePersonDto.motherId === Number(id)
     ) {
       throw new BadRequestException('A person cannot be their own parent');
+    }
+
+    // Prevent cycles when setting parents via update
+    if (updatePersonDto.fatherId != null) {
+      const wouldCycle = await this.wouldCreateAncestryCycle(
+        person.id,
+        updatePersonDto.fatherId,
+      );
+      if (wouldCycle) {
+        throw new BadRequestException(
+          `Cannot set fatherId to ${updatePersonDto.fatherId}: it would create a cycle`,
+        );
+      }
+    }
+
+    if (updatePersonDto.motherId != null) {
+      const wouldCycle = await this.wouldCreateAncestryCycle(
+        person.id,
+        updatePersonDto.motherId,
+      );
+      if (wouldCycle) {
+        throw new BadRequestException(
+          `Cannot set motherId to ${updatePersonDto.motherId}: it would create a cycle`,
+        );
+      }
     }
 
     Object.assign(person, updatePersonDto);
