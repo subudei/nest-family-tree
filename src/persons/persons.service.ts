@@ -18,22 +18,248 @@ export class PersonsService {
   ) {}
 
   async create(createPersonDto: CreatePersonDto): Promise<Person> {
-    // Step 1: Validate parents exist and have correct gender
+    // Step 1: Validate that person is connected to the tree
+    await this.validateNotOrphan(createPersonDto);
+
+    // Step 2: Validate parents exist and have correct gender
     await this.validateParents(
       createPersonDto.fatherId,
       createPersonDto.motherId,
     );
 
-    // Step 2: Validate birth dates make sense
+    // Step 3: Validate birth dates make sense (when adding child to existing parents)
     await this.validateParentDates(
       createPersonDto.birthDate,
       createPersonDto.fatherId,
       createPersonDto.motherId,
     );
 
-    // Step 3: Create person
-    const newPerson = this.personRepository.create(createPersonDto);
-    return await this.personRepository.save(newPerson);
+    // Step 4: Validate children if provided (for adding unknown ancestors)
+    const childrenToLink = await this.validateChildren(
+      createPersonDto.childrenIds,
+      createPersonDto.gender,
+      createPersonDto.birthDate,
+      createPersonDto.deathDate,
+    );
+
+    // Step 5: Create person (exclude childrenIds from entity creation)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { childrenIds, ...entityData } = createPersonDto;
+    const newPerson = this.personRepository.create(entityData);
+    const savedPerson = await this.personRepository.save(newPerson);
+
+    // Step 6: Link children to this parent
+    if (childrenToLink.length > 0) {
+      await this.linkChildrenToParentInternal(savedPerson, childrenToLink);
+    }
+
+    return savedPerson;
+  }
+
+  /**
+   * Validates that children exist, don't already have a parent of this gender,
+   * and that the parent's birth/death dates are valid relative to the children.
+   * Returns the children entities for linking.
+   */
+  private async validateChildren(
+    childrenIds?: number[],
+    gender?: string,
+    parentBirthDate?: string,
+    parentDeathDate?: string,
+  ): Promise<Person[]> {
+    if (!childrenIds || childrenIds.length === 0) return [];
+
+    if (!gender) {
+      throw new BadRequestException('Gender is required when linking children');
+    }
+
+    const children = await this.personRepository.findBy(
+      childrenIds.map((id) => ({ id })),
+    );
+
+    if (children.length !== childrenIds.length) {
+      throw new BadRequestException('One or more children not found');
+    }
+
+    // Check none already have a parent of this gender
+    const parentField = gender === 'male' ? 'fatherId' : 'motherId';
+    const childWithParent = children.find((child) => child[parentField]);
+
+    if (childWithParent) {
+      const parentType = gender === 'male' ? 'father' : 'mother';
+      throw new BadRequestException(
+        `${childWithParent.firstName} already has a ${parentType}`,
+      );
+    }
+
+    // Validate parent birth/death dates relative to children
+    this.validateParentDatesForChildren(
+      children,
+      gender,
+      parentBirthDate,
+      parentDeathDate,
+    );
+
+    return children;
+  }
+
+  /**
+   * Validates that a parent's birth/death dates make sense relative to their children.
+   * - Parent must be born at least 14 years before the earliest child
+   * - Parent must be alive at conception/birth of each child
+   * - Death must be after birth
+   */
+  private validateParentDatesForChildren(
+    children: Person[],
+    parentGender: string,
+    parentBirthDate?: string,
+    parentDeathDate?: string,
+  ): void {
+    const MIN_PARENT_AGE = 14;
+
+    // Validate death is after birth
+    if (parentBirthDate && parentDeathDate) {
+      const birthYear = parseInt(parentBirthDate.split('-')[0], 10);
+      const deathYear = parseInt(parentDeathDate.split('-')[0], 10);
+      if (deathYear < birthYear) {
+        throw new BadRequestException('Death date cannot be before birth date');
+      }
+    }
+
+    if (!parentBirthDate) return; // Can't validate without birth date
+
+    const parentBirthYear = parseInt(parentBirthDate.split('-')[0], 10);
+    const parentDeathYear = parentDeathDate
+      ? parseInt(parentDeathDate.split('-')[0], 10)
+      : null;
+
+    for (const child of children) {
+      if (!child.birthDate) continue;
+
+      const childBirthYear = parseInt(child.birthDate.split('-')[0], 10);
+
+      // Parent must be born at least MIN_PARENT_AGE years before child
+      const parentAgeAtChildBirth = childBirthYear - parentBirthYear;
+      if (parentAgeAtChildBirth < MIN_PARENT_AGE) {
+        throw new BadRequestException(
+          `Parent must be at least ${MIN_PARENT_AGE} years old when ${child.firstName} was born (born ${childBirthYear}). ` +
+            `With birth year ${parentBirthYear}, parent would be ${parentAgeAtChildBirth} years old.`,
+        );
+      }
+
+      // Parent must be alive at conception/birth
+      if (parentDeathYear) {
+        if (parentGender === 'male') {
+          // Father must be alive for conception (up to 1 year before birth)
+          if (parentDeathYear < childBirthYear - 1) {
+            throw new BadRequestException(
+              `Father must be alive for conception of ${child.firstName} (born ${childBirthYear}). ` +
+                `Death year ${parentDeathYear} is too early.`,
+            );
+          }
+        } else {
+          // Mother must be alive at birth
+          if (parentDeathYear < childBirthYear) {
+            throw new BadRequestException(
+              `Mother must be alive at birth of ${child.firstName} (born ${childBirthYear}). ` +
+                `Death year ${parentDeathYear} is too early.`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Links children to a newly created parent by updating their fatherId/motherId (internal helper)
+   */
+  private async linkChildrenToParentInternal(
+    parent: Person,
+    children: Person[],
+  ): Promise<void> {
+    const updateField = parent.gender === 'male' ? 'fatherId' : 'motherId';
+
+    await Promise.all(
+      children.map((child) =>
+        this.personRepository.update(child.id, { [updateField]: parent.id }),
+      ),
+    );
+  }
+
+  /**
+   * Public method to link an existing person to children as their parent.
+   * Validates that the parent exists and has the correct gender for the parent type.
+   * Validates that children don't already have a parent of this type.
+   */
+  async linkChildrenToParent(
+    parentId: number,
+    childrenIds: number[],
+    parentType: 'father' | 'mother',
+  ): Promise<{ message: string; updated: number }> {
+    // Find the parent
+    const parent = await this.personRepository.findOneBy({ id: parentId });
+    if (!parent) {
+      throw new NotFoundException(`Parent with ID ${parentId} not found`);
+    }
+
+    // Validate parent gender matches parent type
+    const expectedGender = parentType === 'father' ? 'male' : 'female';
+    if (parent.gender !== expectedGender) {
+      throw new BadRequestException(
+        `Person with ID ${parentId} is ${parent.gender}, cannot be a ${parentType}`,
+      );
+    }
+
+    // Validate children
+    const children = await this.validateChildren(
+      childrenIds,
+      parent.gender,
+      parent.birthDate,
+      parent.deathDate,
+    );
+
+    // Link children to parent
+    await this.linkChildrenToParentInternal(parent, children);
+
+    return {
+      message: `Successfully linked ${children.length} children to ${parent.firstName} ${parent.lastName}`,
+      updated: children.length,
+    };
+  }
+
+  /**
+   * Validates that persons are connected to the tree.
+   * A person must have at least one of:
+   * - A parent (connected upward)
+   * - Children (connected downward - for adding unknown ancestors)
+   * - Be the progenitor (root ancestor)
+   */
+  private async validateNotOrphan(
+    createPersonDto: CreatePersonDto,
+  ): Promise<void> {
+    const hasParent = createPersonDto.fatherId || createPersonDto.motherId;
+    const hasChildren =
+      createPersonDto.childrenIds && createPersonDto.childrenIds.length > 0;
+
+    // If person has a parent or children, they're connected to the tree
+    if (hasParent || hasChildren) return;
+
+    // If explicitly set as progenitor, allow no connections
+    if (createPersonDto.progenitor) return;
+
+    // Check if this is the first person in the tree
+    const existingCount = await this.personRepository.count();
+
+    if (existingCount === 0) {
+      // First person - auto-set as progenitor
+      createPersonDto.progenitor = true;
+      return;
+    }
+
+    // Not first person and no connections - reject
+    throw new BadRequestException(
+      'A person must have at least one parent or child to be connected to the tree',
+    );
   }
 
   /**

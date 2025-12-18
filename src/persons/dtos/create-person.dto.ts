@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsEnum,
   IsNumber,
+  IsArray,
 } from 'class-validator';
 
 export class CreatePersonDto {
@@ -44,4 +45,9 @@ export class CreatePersonDto {
   @IsNumber()
   @IsOptional()
   motherId?: number;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  childrenIds?: number[];
 }
