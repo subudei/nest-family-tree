@@ -58,4 +58,16 @@ export class PersonsController {
   ): Promise<Person> {
     return this.personsService.updatePerson(id, updatePersonDto);
   }
+
+  @Patch('/:id/link-children')
+  async linkParentToChildren(
+    @Param('id') parentId: string,
+    @Body() body: { childrenIds: number[]; parentType: 'father' | 'mother' },
+  ): Promise<{ message: string; updated: number }> {
+    return this.personsService.linkChildrenToParent(
+      Number(parentId),
+      body.childrenIds,
+      body.parentType,
+    );
+  }
 }
