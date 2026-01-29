@@ -555,24 +555,39 @@ export class PersonsService {
 
     // no need for check !person as findPersonById will throw if not found
 
-    // Validate parents if being updated
-    if (updatePersonDto.fatherId || updatePersonDto.motherId) {
+    // Validate parents if being updated (and not being cleared to null)
+    if (
+      (updatePersonDto.fatherId !== undefined &&
+        updatePersonDto.fatherId !== null) ||
+      (updatePersonDto.motherId !== undefined &&
+        updatePersonDto.motherId !== null)
+    ) {
       await this.validateParents(
-        updatePersonDto.fatherId,
-        updatePersonDto.motherId,
+        updatePersonDto.fatherId ?? undefined,
+        updatePersonDto.motherId ?? undefined,
       );
     }
 
     // Validate dates if birthDate OR parents are being updated
     if (
       updatePersonDto.birthDate ||
-      updatePersonDto.fatherId ||
-      updatePersonDto.motherId
+      updatePersonDto.fatherId !== undefined ||
+      updatePersonDto.motherId !== undefined
     ) {
+      // Determine effective parent IDs (use null as undefined for validation)
+      const effectiveFatherId =
+        updatePersonDto.fatherId !== undefined
+          ? (updatePersonDto.fatherId ?? undefined)
+          : person.fatherId;
+      const effectiveMotherId =
+        updatePersonDto.motherId !== undefined
+          ? (updatePersonDto.motherId ?? undefined)
+          : person.motherId;
+
       await this.validateParentDates(
         updatePersonDto.birthDate ?? person.birthDate,
-        updatePersonDto.fatherId ?? person.fatherId,
-        updatePersonDto.motherId ?? person.motherId,
+        effectiveFatherId ?? undefined,
+        effectiveMotherId ?? undefined,
       );
     }
 
@@ -583,8 +598,11 @@ export class PersonsService {
       throw new BadRequestException('A person cannot be their own parent');
     }
 
-    // Prevent cycles when setting parents via update
-    if (updatePersonDto.fatherId != null) {
+    // Prevent cycles when setting parents via update (skip check if clearing to null)
+    if (
+      updatePersonDto.fatherId !== undefined &&
+      updatePersonDto.fatherId !== null
+    ) {
       const wouldCycle = await this.wouldCreateAncestryCycle(
         person.id,
         updatePersonDto.fatherId,
@@ -596,7 +614,10 @@ export class PersonsService {
       }
     }
 
-    if (updatePersonDto.motherId != null) {
+    if (
+      updatePersonDto.motherId !== undefined &&
+      updatePersonDto.motherId !== null
+    ) {
       const wouldCycle = await this.wouldCreateAncestryCycle(
         person.id,
         updatePersonDto.motherId,
@@ -608,8 +629,94 @@ export class PersonsService {
       }
     }
 
+    // Track old parent IDs before update (for orphan cleanup)
+    const oldFatherId = person.fatherId;
+    const oldMotherId = person.motherId;
+
     Object.assign(person, updatePersonDto);
-    return this.personRepository.save(person);
+    const savedPerson = await this.personRepository.save(person);
+
+    // Auto-cleanup: If parent was changed, check if old parent is now orphaned
+    await this.cleanupOrphanedParent(oldFatherId, updatePersonDto.fatherId);
+    await this.cleanupOrphanedParent(oldMotherId, updatePersonDto.motherId);
+
+    return savedPerson;
+  }
+
+  /**
+   * Check if an old parent is now orphaned after being unlinked, and delete if so.
+   * An orphaned parent has no children and is not connected to the tree.
+   */
+  private async cleanupOrphanedParent(
+    oldParentId: number | null | undefined,
+    newParentId: number | null | undefined,
+  ): Promise<void> {
+    // Only check if parent was actually changed (not just kept the same)
+    if (oldParentId === undefined || oldParentId === null) return;
+    if (oldParentId === newParentId) return;
+
+    // Check if old parent still has any children
+    const childrenCount = await this.personRepository.count({
+      where: [{ fatherId: oldParentId }, { motherId: oldParentId }],
+    });
+
+    if (childrenCount > 0) return; // Still has children, not orphaned
+
+    // Check if old parent is the progenitor (never delete progenitor)
+    const oldParent = await this.personRepository.findOne({
+      where: { id: oldParentId },
+    });
+
+    if (!oldParent) return;
+    if (oldParent.progenitor) return; // Never delete progenitor
+
+    // Check if orphaned (not connected to tree) - simplified check:
+    // If they have no children AND are not the progenitor AND have no parents themselves,
+    // they're likely orphaned. More thorough: check if reachable from progenitor.
+    const isConnected = await this.isConnectedToTree(oldParentId);
+
+    if (!isConnected) {
+      await this.personRepository.delete(oldParentId);
+    }
+  }
+
+  /**
+   * Check if a person is connected to the family tree (reachable from progenitor).
+   */
+  private async isConnectedToTree(personId: number): Promise<boolean> {
+    const allPersons = await this.findAllPersons();
+    const progenitor = allPersons.find((p) => p.progenitor);
+
+    if (!progenitor) return false;
+
+    const connectedIds = new Set<number>();
+    const queue: Person[] = [progenitor];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (connectedIds.has(current.id)) continue;
+      connectedIds.add(current.id);
+
+      // Find children
+      const children = allPersons.filter(
+        (p) => p.fatherId === current.id || p.motherId === current.id,
+      );
+
+      for (const child of children) {
+        if (!connectedIds.has(child.id)) queue.push(child);
+        // Add spouses
+        if (child.fatherId && !connectedIds.has(child.fatherId)) {
+          const father = allPersons.find((p) => p.id === child.fatherId);
+          if (father) queue.push(father);
+        }
+        if (child.motherId && !connectedIds.has(child.motherId)) {
+          const mother = allPersons.find((p) => p.id === child.motherId);
+          if (mother) queue.push(mother);
+        }
+      }
+    }
+
+    return connectedIds.has(personId);
   }
 
   async findProgenitor(): Promise<Person | null> {
@@ -667,5 +774,74 @@ export class PersonsService {
       // cleanup important always
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Find and delete all orphaned persons (not connected to the family tree).
+   * A person is orphaned if they are NOT:
+   * - The progenitor
+   * - A descendant of the progenitor
+   * - A spouse of someone in the tree (has children with someone connected)
+   */
+  async deleteOrphanedPersons(): Promise<{ message: string; deleted: number }> {
+    const allPersons = await this.findAllPersons();
+    const progenitor = allPersons.find((p) => p.progenitor);
+
+    if (!progenitor) {
+      return {
+        message: 'No progenitor found, cannot determine orphans',
+        deleted: 0,
+      };
+    }
+
+    // Build set of all connected person IDs using BFS from progenitor
+    const connectedIds = new Set<number>();
+    const queue: Person[] = [progenitor];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (connectedIds.has(current.id)) continue;
+      connectedIds.add(current.id);
+
+      // Find children of this person
+      const children = allPersons.filter(
+        (p) => p.fatherId === current.id || p.motherId === current.id,
+      );
+
+      for (const child of children) {
+        if (!connectedIds.has(child.id)) {
+          queue.push(child);
+        }
+        // Also add the other parent (spouse) as connected
+        if (child.fatherId && !connectedIds.has(child.fatherId)) {
+          const father = allPersons.find((p) => p.id === child.fatherId);
+          if (father) queue.push(father);
+        }
+        if (child.motherId && !connectedIds.has(child.motherId)) {
+          const mother = allPersons.find((p) => p.id === child.motherId);
+          if (mother) queue.push(mother);
+        }
+      }
+    }
+
+    // Find orphaned persons (not in connected set)
+    const orphanedPersons = allPersons.filter((p) => !connectedIds.has(p.id));
+
+    if (orphanedPersons.length === 0) {
+      return { message: 'No orphaned persons found', deleted: 0 };
+    }
+
+    // Delete all orphaned persons
+    const orphanedIds = orphanedPersons.map((p) => p.id);
+    await this.personRepository.delete(orphanedIds);
+
+    const names = orphanedPersons
+      .map((p) => `${p.firstName} ${p.lastName}`)
+      .join(', ');
+
+    return {
+      message: `Deleted orphaned persons: ${names}`,
+      deleted: orphanedPersons.length,
+    };
   }
 }

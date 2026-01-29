@@ -220,7 +220,7 @@ DELETE http://localhost:3001/persons/4
 ###
 ### Test DELETE 3: Successful deletion (person with no children)
 ### Delete Andrei (ID 2 - has no children)
-DELETE http://localhost:3001/persons/3
+DELETE http://localhost:3001/persons/19
 
 ###
 ### Verify deletion worked

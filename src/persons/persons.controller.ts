@@ -41,6 +41,11 @@ export class PersonsController {
     return await this.personsService.promoteAncestor(dto);
   }
 
+  @Delete('/orphans')
+  async deleteOrphanedPersons(): Promise<{ message: string; deleted: number }> {
+    return await this.personsService.deleteOrphanedPersons();
+  }
+
   @Get('/:id')
   findPersonById(@Param('id') id: string) {
     return this.personsService.findPersonById(id);

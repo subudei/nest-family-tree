@@ -10,9 +10,14 @@ async function bootstrap() {
     }),
   );
 
-  // Enable CORS for your Next.js frontend
+  // Enable CORS for your Next.js frontend (multiple ports for development)
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'http://localhost:3003',
+    ],
     credentials: true,
   });
 

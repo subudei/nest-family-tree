@@ -4,6 +4,7 @@ import {
   IsBoolean,
   // IsEnum,
   IsNumber,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdatePersonDto {
@@ -35,11 +36,13 @@ export class UpdatePersonDto {
   @IsOptional()
   trivia?: string;
 
+  @ValidateIf((o: { fatherId?: number | null }) => o.fatherId !== null)
   @IsNumber()
   @IsOptional()
-  fatherId?: number;
+  fatherId?: number | null;
 
+  @ValidateIf((o: { motherId?: number | null }) => o.motherId !== null)
   @IsNumber()
   @IsOptional()
-  motherId?: number;
+  motherId?: number | null;
 }
