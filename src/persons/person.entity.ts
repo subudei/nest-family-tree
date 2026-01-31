@@ -1,15 +1,24 @@
 import {
   Column,
   Entity,
-  // JoinColumn,
-  // ManyToOne,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { Tree } from '../trees/tree.entity';
 
 @Entity()
 export class Person {
   @PrimaryGeneratedColumn()
   id: number;
+
+  // Link to the tree this person belongs to
+  @Column()
+  treeId: string;
+
+  @ManyToOne(() => Tree, (tree) => tree.persons, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'treeId' })
+  tree: Tree;
 
   @Column()
   firstName: string;
