@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PersonsModule } from './persons/persons.module';
 import { TreesModule } from './trees/trees.module';
+import { AuthModule } from './auth/auth.module';
 import { Person } from './persons/person.entity';
 import { Tree } from './trees/tree.entity';
 
@@ -17,6 +18,7 @@ import { Tree } from './trees/tree.entity';
     }),
     PersonsModule,
     TreesModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

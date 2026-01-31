@@ -1,3 +1,68 @@
+#########################################
+### AUTH ENDPOINTS
+#########################################
+
+### Register a new tree (creates admin + guest accounts)
+POST http://localhost:3001/auth/register
+Content-Type: application/json
+
+{
+  "treeName": "Mike's Family Tree",
+  "adminUsername": "MikeTheGreat",
+  "adminPassword": "Test1234!",
+  "guestUsername": "MikesGuest",
+  "guestPassword": "Guest123",
+  "email": "mike@example.com"
+}
+
+### Login as admin
+POST http://localhost:3001/auth/login
+Content-Type: application/json
+
+{
+  "username": "MikeTheGreat",
+  "password": "Test1234!"
+}
+
+### Login as guest
+POST http://localhost:3001/auth/login
+Content-Type: application/json
+
+{
+  "username": "MikesGuest",
+  "password": "Guest123"
+}
+
+### Get current user info (requires auth token)
+### Replace <TOKEN> with the accessToken from login response
+GET http://localhost:3001/auth/me
+Authorization: Bearer <TOKEN>
+
+### Test: Duplicate username (should fail with 409)
+POST http://localhost:3001/auth/register
+Content-Type: application/json
+
+{
+  "treeName": "Another Tree",
+  "adminUsername": "MikeTheGreat",
+  "adminPassword": "Test1234!",
+  "guestUsername": "AnotherGuest",
+  "guestPassword": "Guest123"
+}
+
+### Test: Invalid credentials (should fail with 401)
+POST http://localhost:3001/auth/login
+Content-Type: application/json
+
+{
+  "username": "MikeTheGreat",
+  "password": "WrongPassword"
+}
+
+#########################################
+### PERSONS ENDPOINTS
+#########################################
+
 ### Create a new person
 POST http://localhost:3001/persons
 Content-Type: application/json

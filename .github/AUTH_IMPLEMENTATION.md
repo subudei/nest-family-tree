@@ -112,32 +112,32 @@ All existing endpoints now require authentication and are scoped to the user's t
 
 ---
 
-### Phase 2: Backend - Auth Module
+### Phase 2: Backend - Auth Module ✅ COMPLETED
 
-- [ ] **2.1** Create Auth module structure
+- [x] **2.1** Create Auth module structure
   - `src/auth/auth.module.ts`
   - `src/auth/auth.service.ts`
   - `src/auth/auth.controller.ts`
 
-- [ ] **2.2** Create DTOs
+- [x] **2.2** Create DTOs
   - `src/auth/dtos/register.dto.ts`
   - `src/auth/dtos/login.dto.ts`
 
-- [ ] **2.3** Implement JWT Strategy
+- [x] **2.3** Implement JWT Strategy
   - `src/auth/strategies/jwt.strategy.ts`
   - Configure JWT module with 24h expiration
 
-- [ ] **2.4** Implement Auth Service
+- [x] **2.4** Implement Auth Service
   - `register()` - create tree with hashed passwords
   - `login()` - verify credentials, return JWT
   - `validateUser()` - check username in both admin/guest columns
 
-- [ ] **2.5** Implement Auth Controller
+- [x] **2.5** Implement Auth Controller
   - POST `/auth/register`
   - POST `/auth/login`
   - GET `/auth/me`
 
-- [ ] **2.6** Create Guards
+- [x] **2.6** Create Guards
   - `src/auth/guards/jwt-auth.guard.ts` - requires valid JWT
   - `src/auth/guards/admin.guard.ts` - requires admin role
 
