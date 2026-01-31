@@ -52,14 +52,18 @@ export class PersonsService {
     return false;
   }
 
-  async create(createPersonDto: CreatePersonDto): Promise<Person> {
+  async create(
+    createPersonDto: CreatePersonDto,
+    treeId: string,
+  ): Promise<Person> {
     // Step 1: Validate that person is connected to the tree
-    await this.validateNotOrphan(createPersonDto);
+    await this.validateNotOrphan(createPersonDto, treeId);
 
     // Step 2: Validate parents exist and have correct gender
     await this.validateParents(
       createPersonDto.fatherId,
       createPersonDto.motherId,
+      treeId,
     );
 
     // Step 3: Validate birth dates make sense (when adding child to existing parents)
@@ -67,6 +71,7 @@ export class PersonsService {
       createPersonDto.birthDate,
       createPersonDto.fatherId,
       createPersonDto.motherId,
+      treeId,
     );
 
     // Step 4: Validate children if provided (for adding unknown ancestors)
@@ -75,12 +80,13 @@ export class PersonsService {
       createPersonDto.gender,
       createPersonDto.birthDate,
       createPersonDto.deathDate,
+      treeId,
     );
 
     // Step 5: Create person (exclude childrenIds from entity creation)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { childrenIds, ...entityData } = createPersonDto;
-    const newPerson = this.personRepository.create(entityData);
+    const newPerson = this.personRepository.create({ ...entityData, treeId });
     const savedPerson = await this.personRepository.save(newPerson);
 
     // Step 6: Link children to this parent
@@ -101,6 +107,7 @@ export class PersonsService {
     gender?: string,
     parentBirthDate?: string,
     parentDeathDate?: string,
+    treeId?: string,
   ): Promise<Person[]> {
     if (!childrenIds || childrenIds.length === 0) return [];
 
@@ -109,7 +116,7 @@ export class PersonsService {
     }
 
     const children = await this.personRepository.findBy(
-      childrenIds.map((id) => ({ id })),
+      childrenIds.map((id) => ({ id, treeId })),
     );
 
     if (children.length !== childrenIds.length) {
@@ -230,9 +237,13 @@ export class PersonsService {
     parentId: number,
     childrenIds: number[],
     parentType: 'father' | 'mother',
+    treeId: string,
   ): Promise<{ message: string; updated: number }> {
     // Find the parent
-    const parent = await this.personRepository.findOneBy({ id: parentId });
+    const parent = await this.personRepository.findOneBy({
+      id: parentId,
+      treeId,
+    });
     if (!parent) {
       throw new NotFoundException(`Parent with ID ${parentId} not found`);
     }
@@ -291,6 +302,7 @@ export class PersonsService {
    */
   private async validateNotOrphan(
     createPersonDto: CreatePersonDto,
+    treeId: string,
   ): Promise<void> {
     const hasParent = createPersonDto.fatherId || createPersonDto.motherId;
     const hasChildren =
@@ -303,7 +315,9 @@ export class PersonsService {
     if (createPersonDto.progenitor) return;
 
     // Check if this is the first person in the tree
-    const existingCount = await this.personRepository.count();
+    const existingCount = await this.personRepository.count({
+      where: { treeId },
+    });
 
     if (existingCount === 0) {
       // First person - auto-set as progenitor
@@ -323,9 +337,13 @@ export class PersonsService {
   private async validateParents(
     fatherId?: number,
     motherId?: number,
+    treeId?: string,
   ): Promise<void> {
     if (fatherId) {
-      const father = await this.personRepository.findOneBy({ id: fatherId });
+      const father = await this.personRepository.findOneBy({
+        id: fatherId,
+        treeId,
+      });
 
       if (!father) {
         throw new NotFoundException(`Father with ID ${fatherId} not found`);
@@ -339,7 +357,10 @@ export class PersonsService {
     }
 
     if (motherId) {
-      const mother = await this.personRepository.findOneBy({ id: motherId });
+      const mother = await this.personRepository.findOneBy({
+        id: motherId,
+        treeId,
+      });
 
       if (!mother) {
         throw new NotFoundException(`Mother with ID ${motherId} not found`);
@@ -372,6 +393,7 @@ export class PersonsService {
     childBirthDate: string | undefined,
     fatherId?: number,
     motherId?: number,
+    treeId?: string,
   ): Promise<void> {
     // If no birth date provided, skip validation
     if (!childBirthDate) {
@@ -381,7 +403,10 @@ export class PersonsService {
     const childBirthYear = this.extractYear(childBirthDate);
 
     if (fatherId) {
-      const father = await this.personRepository.findOneBy({ id: fatherId });
+      const father = await this.personRepository.findOneBy({
+        id: fatherId,
+        treeId,
+      });
 
       // Father should exist (already validated in validateParents)
       if (father && father.birthDate) {
@@ -444,7 +469,10 @@ export class PersonsService {
 
     // Validate mother's birth date
     if (motherId) {
-      const mother = await this.personRepository.findOneBy({ id: motherId });
+      const mother = await this.personRepository.findOneBy({
+        id: motherId,
+        treeId,
+      });
 
       // Mother should exist (already validated in validateParents)
       if (mother && mother.birthDate) {
@@ -504,32 +532,35 @@ export class PersonsService {
     }
   }
 
-  async findAllPersons(): Promise<Person[]> {
-    return await this.personRepository.find();
+  async findAllPersons(treeId: string): Promise<Person[]> {
+    return await this.personRepository.find({ where: { treeId } });
   }
 
-  async findPersonById(id: string): Promise<Person> {
-    const person = await this.personRepository.findOneBy({ id: Number(id) });
+  async findPersonById(id: string, treeId: string): Promise<Person> {
+    const person = await this.personRepository.findOneBy({
+      id: Number(id),
+      treeId,
+    });
     if (!person) {
       throw new NotFoundException(`Person with ID ${id} not found`);
     }
     return person;
   }
 
-  async findPersonByName(name: string): Promise<Person[]> {
+  async findPersonByName(name: string, treeId: string): Promise<Person[]> {
     const searchTerm = `%${name}%`;
     return await this.personRepository
       .createQueryBuilder('person')
-      .where('person.firstName LIKE :searchTerm', { searchTerm })
-      .orWhere('person.lastName LIKE :searchTerm', { searchTerm })
-      .orWhere("person.firstName || ' ' || person.lastName LIKE :searchTerm", {
-        search: searchTerm,
-      })
+      .where('person.treeId = :treeId', { treeId })
+      .andWhere(
+        "(person.firstName LIKE :searchTerm OR person.lastName LIKE :searchTerm OR person.firstName || ' ' || person.lastName LIKE :searchTerm)",
+        { searchTerm },
+      )
       .getMany();
   }
 
-  async removePerson(id: string): Promise<{ message: string }> {
-    const person = await this.findPersonById(id);
+  async removePerson(id: string, treeId: string): Promise<{ message: string }> {
+    const person = await this.findPersonById(id, treeId);
 
     const children = await this.personRepository.find({
       where: [{ fatherId: person.id }, { motherId: person.id }],
@@ -550,8 +581,9 @@ export class PersonsService {
   async updatePerson(
     id: string,
     updatePersonDto: UpdatePersonDto,
+    treeId: string,
   ): Promise<Person> {
-    const person = await this.findPersonById(id);
+    const person = await this.findPersonById(id, treeId);
 
     // no need for check !person as findPersonById will throw if not found
 
@@ -565,6 +597,7 @@ export class PersonsService {
       await this.validateParents(
         updatePersonDto.fatherId ?? undefined,
         updatePersonDto.motherId ?? undefined,
+        treeId,
       );
     }
 
@@ -588,6 +621,7 @@ export class PersonsService {
         updatePersonDto.birthDate ?? person.birthDate,
         effectiveFatherId ?? undefined,
         effectiveMotherId ?? undefined,
+        treeId,
       );
     }
 
@@ -637,8 +671,16 @@ export class PersonsService {
     const savedPerson = await this.personRepository.save(person);
 
     // Auto-cleanup: If parent was changed, check if old parent is now orphaned
-    await this.cleanupOrphanedParent(oldFatherId, updatePersonDto.fatherId);
-    await this.cleanupOrphanedParent(oldMotherId, updatePersonDto.motherId);
+    await this.cleanupOrphanedParent(
+      oldFatherId,
+      updatePersonDto.fatherId,
+      treeId,
+    );
+    await this.cleanupOrphanedParent(
+      oldMotherId,
+      updatePersonDto.motherId,
+      treeId,
+    );
 
     return savedPerson;
   }
@@ -650,6 +692,7 @@ export class PersonsService {
   private async cleanupOrphanedParent(
     oldParentId: number | null | undefined,
     newParentId: number | null | undefined,
+    treeId: string,
   ): Promise<void> {
     // Only check if parent was actually changed (not just kept the same)
     if (oldParentId === undefined || oldParentId === null) return;
@@ -657,14 +700,17 @@ export class PersonsService {
 
     // Check if old parent still has any children
     const childrenCount = await this.personRepository.count({
-      where: [{ fatherId: oldParentId }, { motherId: oldParentId }],
+      where: [
+        { fatherId: oldParentId, treeId },
+        { motherId: oldParentId, treeId },
+      ],
     });
 
     if (childrenCount > 0) return; // Still has children, not orphaned
 
     // Check if old parent is the progenitor (never delete progenitor)
     const oldParent = await this.personRepository.findOne({
-      where: { id: oldParentId },
+      where: { id: oldParentId, treeId },
     });
 
     if (!oldParent) return;
@@ -673,7 +719,7 @@ export class PersonsService {
     // Check if orphaned (not connected to tree) - simplified check:
     // If they have no children AND are not the progenitor AND have no parents themselves,
     // they're likely orphaned. More thorough: check if reachable from progenitor.
-    const isConnected = await this.isConnectedToTree(oldParentId);
+    const isConnected = await this.isConnectedToTree(oldParentId, treeId);
 
     if (!isConnected) {
       await this.personRepository.delete(oldParentId);
@@ -683,8 +729,11 @@ export class PersonsService {
   /**
    * Check if a person is connected to the family tree (reachable from progenitor).
    */
-  private async isConnectedToTree(personId: number): Promise<boolean> {
-    const allPersons = await this.findAllPersons();
+  private async isConnectedToTree(
+    personId: number,
+    treeId: string,
+  ): Promise<boolean> {
+    const allPersons = await this.findAllPersons(treeId);
     const progenitor = allPersons.find((p) => p.progenitor);
 
     if (!progenitor) return false;
@@ -719,12 +768,15 @@ export class PersonsService {
     return connectedIds.has(personId);
   }
 
-  async findProgenitor(): Promise<Person | null> {
-    return await this.personRepository.findOneBy({ progenitor: true });
+  async findProgenitor(treeId: string): Promise<Person | null> {
+    return await this.personRepository.findOneBy({ progenitor: true, treeId });
   }
 
-  async promoteAncestor(dto: PromoteAncestorDto): Promise<Person> {
-    const currentProgenitor = await this.findProgenitor();
+  async promoteAncestor(
+    dto: PromoteAncestorDto,
+    treeId: string,
+  ): Promise<Person> {
+    const currentProgenitor = await this.findProgenitor(treeId);
     if (!currentProgenitor) {
       throw new NotFoundException('No progenitor exists in the family tree');
     }
@@ -753,6 +805,7 @@ export class PersonsService {
 
       const newAncestor = queryRunner.manager.create(Person, {
         ...personData,
+        treeId,
         progenitor: true,
       });
       await queryRunner.manager.save(newAncestor);
@@ -783,8 +836,10 @@ export class PersonsService {
    * - A descendant of the progenitor
    * - A spouse of someone in the tree (has children with someone connected)
    */
-  async deleteOrphanedPersons(): Promise<{ message: string; deleted: number }> {
-    const allPersons = await this.findAllPersons();
+  async deleteOrphanedPersons(
+    treeId: string,
+  ): Promise<{ message: string; deleted: number }> {
+    const allPersons = await this.findAllPersons(treeId);
     const progenitor = allPersons.find((p) => p.progenitor);
 
     if (!progenitor) {

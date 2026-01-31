@@ -143,20 +143,20 @@ All existing endpoints now require authentication and are scoped to the user's t
 
 ---
 
-### Phase 3: Backend - Update Persons Module
+### Phase 3: Backend - Update Persons Module ✅ COMPLETED
 
-- [ ] **3.1** Update PersonsService
+- [x] **3.1** Update PersonsService
   - All methods now receive `treeId` from JWT
   - `findAll(treeId)` - filter by tree
   - `create(treeId, dto)` - attach treeId
   - Ensure person belongs to tree before update/delete
 
-- [ ] **3.2** Update PersonsController
+- [x] **3.2** Update PersonsController
   - Apply `JwtAuthGuard` to all routes
   - Apply `AdminGuard` to POST, PATCH, DELETE
   - Extract `treeId` from JWT payload
 
-- [ ] **3.3** Update DTOs if needed
+- [x] **3.3** Update DTOs if needed (no changes needed)
 
 ---
 
