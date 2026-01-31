@@ -160,31 +160,27 @@ All existing endpoints now require authentication and are scoped to the user's t
 
 ---
 
-### Phase 4: Frontend - Auth Infrastructure
+### Phase 4: Frontend - Auth Infrastructure ✅ COMPLETED
 
-- [ ] **4.1** Install packages (if needed)
+- [x] **4.1** Install packages (if needed)
+  - Using localStorage instead of js-cookie (simpler, no extra deps)
 
-  ```bash
-  npm install js-cookie
-  npm install -D @types/js-cookie
-  ```
-
-- [ ] **4.2** Create Auth types
+- [x] **4.2** Create Auth types
   - `src/types/auth.ts`
 
-- [ ] **4.3** Create Auth API functions
+- [x] **4.3** Create Auth API functions
   - `src/api/auth.ts`
   - `register()`, `login()`, `getMe()`
 
-- [ ] **4.4** Create Auth Context/Provider
+- [x] **4.4** Create Auth Context/Provider
   - `src/context/AuthContext.tsx`
   - Store: token, user, role, treeId, isAuthenticated
   - Methods: login, logout, register
 
-- [ ] **4.5** Create Auth hook
+- [x] **4.5** Create Auth hook
   - `src/hooks/useAuth.ts`
 
-- [ ] **4.6** Update API client
+- [x] **4.6** Update API client
   - Add Authorization header to all requests
   - Handle 401 responses (redirect to login)
 
