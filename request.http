@@ -388,3 +388,93 @@ Content-Type: application/json
   "currentProgenitorId": 3,
   "relationship": "father"
 }
+
+#########################################
+### SYSTEM ADMIN ENDPOINTS
+#########################################
+
+### System Admin Login
+# Use credentials from .env (default: sysadmin / changeme123)
+POST http://localhost:3001/system-admin/login
+Content-Type: application/json
+
+{
+  "username": "sysadmin",
+  "password": "changeme123"
+}
+
+### Get current system admin info
+# Replace <SYSADMIN_TOKEN> with token from login response
+GET http://localhost:3001/system-admin/me
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Get dashboard statistics
+GET http://localhost:3001/system-admin/dashboard
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### List all trees (paginated)
+GET http://localhost:3001/system-admin/trees?page=1&limit=10
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Search trees by name/username
+GET http://localhost:3001/system-admin/trees?search=Mike
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Get tree details (with all persons)
+# Replace <TREE_ID> with actual tree UUID
+GET http://localhost:3001/system-admin/trees/<TREE_ID>
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Export tree as JSON
+GET http://localhost:3001/system-admin/trees/<TREE_ID>/export
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Delete a tree (WARNING: Permanent!)
+DELETE http://localhost:3001/system-admin/trees/<TREE_ID>
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Update any person (system admin override)
+# Replace <PERSON_ID> with actual person ID
+PATCH http://localhost:3001/system-admin/persons/<PERSON_ID>
+Content-Type: application/json
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+{
+  "firstName": "UpdatedName",
+  "trivia": "Updated by system admin"
+}
+
+### Delete any person (system admin override)
+DELETE http://localhost:3001/system-admin/persons/<PERSON_ID>
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### List all system admins
+GET http://localhost:3001/system-admin/admins
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+### Create new system admin
+POST http://localhost:3001/system-admin/admins
+Content-Type: application/json
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+{
+  "username": "newadmin",
+  "password": "SecurePass123!",
+  "email": "newadmin@example.com",
+  "displayName": "New Administrator"
+}
+
+### Update a system admin
+# Replace <ADMIN_ID> with actual admin UUID
+PATCH http://localhost:3001/system-admin/admins/<ADMIN_ID>
+Content-Type: application/json
+Authorization: Bearer <SYSADMIN_TOKEN>
+
+{
+  "displayName": "Updated Display Name",
+  "email": "updated@example.com"
+}
+
+### Deactivate a system admin (soft delete)
+DELETE http://localhost:3001/system-admin/admins/<ADMIN_ID>
+Authorization: Bearer <SYSADMIN_TOKEN>
