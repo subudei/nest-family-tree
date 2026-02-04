@@ -34,6 +34,13 @@ export class Tree {
   @Column({ nullable: true })
   ownerEmail?: string;
 
+  // Optional owner name fields
+  @Column({ nullable: true })
+  firstName?: string;
+
+  @Column({ nullable: true })
+  lastName?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

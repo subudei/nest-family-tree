@@ -51,7 +51,7 @@ export class RegisterDto {
   @MaxLength(100)
   guestPassword: string;
 
-  @IsOptional()
-  @IsEmail()
-  email?: string;
+  @IsNotEmpty({ message: 'Email is required' })
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email: string;
 }

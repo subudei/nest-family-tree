@@ -2,12 +2,14 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { TreesService } from '../trees/trees.service';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
+import { UpdateProfileDto } from './dtos/update-profile.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 @Injectable()
@@ -118,5 +120,114 @@ export class AuthService {
       role: user.role,
       treeName: user.treeName,
     };
+  }
+
+  async getProfile(treeId: string) {
+    const tree = await this.treesService.findById(treeId);
+    if (!tree) {
+      throw new UnauthorizedException('Tree not found');
+    }
+
+    return {
+      treeId: tree.id,
+      treeName: tree.name,
+      email: tree.ownerEmail || '',
+      firstName: tree.firstName || '',
+      lastName: tree.lastName || '',
+      adminUsername: tree.adminUsername,
+      guestUsername: tree.guestUsername,
+      createdAt: tree.createdAt,
+    };
+  }
+
+  async updateProfile(treeId: string, updateProfileDto: UpdateProfileDto) {
+    const tree = await this.treesService.findById(treeId);
+    if (!tree) {
+      throw new UnauthorizedException('Tree not found');
+    }
+
+    const updateData: {
+      ownerEmail?: string;
+      firstName?: string;
+      lastName?: string;
+      adminPasswordHash?: string;
+      guestPasswordHash?: string;
+    } = {};
+
+    // Update firstName if provided
+    if (updateProfileDto.firstName !== undefined) {
+      updateData.firstName = updateProfileDto.firstName;
+    }
+
+    // Update lastName if provided
+    if (updateProfileDto.lastName !== undefined) {
+      updateData.lastName = updateProfileDto.lastName;
+    }
+
+    // Update email if provided
+    if (updateProfileDto.email !== undefined) {
+      updateData.ownerEmail = updateProfileDto.email;
+    }
+
+    // Update admin password if new password is provided
+    if (updateProfileDto.newPassword) {
+      if (!updateProfileDto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to change password',
+        );
+      }
+
+      // Verify current password
+      const isPasswordValid = await bcrypt.compare(
+        updateProfileDto.currentPassword,
+        tree.adminPasswordHash,
+      );
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+
+      // Hash new password
+      const saltRounds = 10;
+      updateData.adminPasswordHash = await bcrypt.hash(
+        updateProfileDto.newPassword,
+        saltRounds,
+      );
+    }
+
+    // Update guest password if provided
+    if (updateProfileDto.newGuestPassword) {
+      if (!updateProfileDto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to change guest password',
+        );
+      }
+
+      // Verify current (admin) password
+      const isPasswordValid = await bcrypt.compare(
+        updateProfileDto.currentPassword,
+        tree.adminPasswordHash,
+      );
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+
+      // Hash new guest password
+      const saltRounds = 10;
+      updateData.guestPasswordHash = await bcrypt.hash(
+        updateProfileDto.newGuestPassword,
+        saltRounds,
+      );
+    }
+
+    // Only update if there's something to update
+    if (Object.keys(updateData).length === 0) {
+      return { success: true, message: 'No changes made' };
+    }
+
+    await this.treesService.update(treeId, updateData);
+
+    return { success: true, message: 'Profile updated successfully' };
   }
 }
