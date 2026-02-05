@@ -41,6 +41,13 @@ export class Tree {
   @Column({ nullable: true })
   lastName?: string;
 
+  // Password reset fields
+  @Column({ nullable: true })
+  resetPasswordToken?: string;
+
+  @Column({ nullable: true })
+  resetPasswordExpires?: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 

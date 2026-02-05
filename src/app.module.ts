@@ -6,6 +6,7 @@ import { PersonsModule } from './persons/persons.module';
 import { TreesModule } from './trees/trees.module';
 import { AuthModule } from './auth/auth.module';
 import { SystemAdminModule } from './system-admin/system-admin.module';
+import { EmailModule } from './email/email.module';
 import { Person } from './persons/person.entity';
 import { Tree } from './trees/tree.entity';
 import { SystemAdmin } from './system-admin/entities/system-admin.entity';
@@ -18,6 +19,7 @@ import { SystemAdmin } from './system-admin/entities/system-admin.entity';
       entities: [Person, Tree, SystemAdmin],
       synchronize: true,
     }),
+    EmailModule,
     PersonsModule,
     TreesModule,
     AuthModule,

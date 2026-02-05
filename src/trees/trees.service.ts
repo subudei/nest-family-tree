@@ -22,6 +22,16 @@ export class TreesService {
     return this.treesRepository.findOne({ where: { guestUsername: username } });
   }
 
+  async findByEmail(email: string): Promise<Tree[]> {
+    return this.treesRepository.find({ where: { ownerEmail: email } });
+  }
+
+  async findByResetToken(token: string): Promise<Tree | null> {
+    return this.treesRepository.findOne({
+      where: { resetPasswordToken: token },
+    });
+  }
+
   async findByUsername(
     username: string,
   ): Promise<{ tree: Tree; role: 'admin' | 'guest' } | null> {

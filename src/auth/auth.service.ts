@@ -3,13 +3,18 @@ import {
   ConflictException,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { TreesService } from '../trees/trees.service';
+import { EmailService } from '../email/email.service';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
 import { UpdateProfileDto } from './dtos/update-profile.dto';
+import { ForgotPasswordDto } from './dtos/forgot-password.dto';
+import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 @Injectable()
@@ -17,6 +22,7 @@ export class AuthService {
   constructor(
     private treesService: TreesService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -245,5 +251,94 @@ export class AuthService {
     await this.treesService.update(treeId, updateData);
 
     return { success: true, message: 'Profile updated successfully' };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const { email, treeId } = forgotPasswordDto;
+
+    // Find all trees with this email
+    const trees = await this.treesService.findByEmail(email);
+
+    if (trees.length === 0) {
+      // Don't reveal if email exists for security
+      return {
+        message:
+          'If an account with this email exists, you will receive a password reset link.',
+        requiresTreeSelection: false,
+      };
+    }
+
+    // If treeId is not provided and there are multiple trees, return tree selection
+    if (!treeId && trees.length > 1) {
+      return {
+        message: 'Multiple trees found. Please select which tree to reset.',
+        requiresTreeSelection: true,
+        trees: trees.map((t) => ({
+          id: t.id,
+          name: t.name,
+          adminUsername: t.adminUsername,
+        })),
+      };
+    }
+
+    // Find the specific tree (either the only one, or the selected one)
+    const tree = treeId ? trees.find((t) => t.id === treeId) : trees[0];
+
+    if (!tree) {
+      throw new NotFoundException('Tree not found');
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Save token to database
+    await this.treesService.update(tree.id, {
+      resetPasswordToken: resetToken,
+      resetPasswordExpires: resetExpires,
+    });
+
+    // Send email
+    await this.emailService.sendPasswordResetEmail(
+      email,
+      tree.name,
+      tree.adminUsername,
+      resetToken,
+    );
+
+    return {
+      message:
+        'If an account with this email exists, you will receive a password reset link.',
+      requiresTreeSelection: false,
+    };
+  }
+
+  async resetPassword(resetPasswordDto: ResetPasswordDto) {
+    const { token, newPassword } = resetPasswordDto;
+
+    // Find tree by reset token
+    const tree = await this.treesService.findByResetToken(token);
+
+    if (!tree) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Check if token is expired
+    if (!tree.resetPasswordExpires || tree.resetPasswordExpires < new Date()) {
+      throw new BadRequestException('Reset token has expired');
+    }
+
+    // Hash new password
+    const saltRounds = 10;
+    const adminPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update password and clear reset token
+    await this.treesService.update(tree.id, {
+      adminPasswordHash,
+      resetPasswordToken: undefined,
+      resetPasswordExpires: undefined,
+    });
+
+    return { success: true, message: 'Password has been reset successfully' };
   }
 }
