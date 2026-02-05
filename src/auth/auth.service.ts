@@ -114,7 +114,23 @@ export class AuthService {
     };
   }
 
-  getMe(user: { treeId: string; role: 'admin' | 'guest'; treeName: string }) {
+  async getMe(user: {
+    treeId: string;
+    role: 'admin' | 'guest';
+    treeName: string;
+  }) {
+    // For admins, fetch firstName and lastName from the tree
+    if (user.role === 'admin') {
+      const tree = await this.treesService.findById(user.treeId);
+      return {
+        treeId: user.treeId,
+        role: user.role,
+        treeName: user.treeName,
+        firstName: tree?.firstName || '',
+        lastName: tree?.lastName || '',
+      };
+    }
+
     return {
       treeId: user.treeId,
       role: user.role,

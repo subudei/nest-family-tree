@@ -33,7 +33,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(
+  async getMe(
     @Request()
     req: {
       user: { treeId: string; role: 'admin' | 'guest'; treeName: string };
