@@ -45,6 +45,9 @@ export class Person {
   trivia?: string;
 
   @Column({ default: false })
+  deceased: boolean;
+
+  @Column({ default: false })
   progenitor: boolean;
 
   @Column({ nullable: true })

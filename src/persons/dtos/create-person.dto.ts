@@ -38,6 +38,10 @@ export class CreatePersonDto {
   @IsOptional()
   trivia?: string;
 
+  @IsBoolean()
+  @IsOptional()
+  deceased?: boolean;
+
   @IsNumber()
   @IsOptional()
   fatherId?: number;

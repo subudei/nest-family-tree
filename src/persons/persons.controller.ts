@@ -14,7 +14,9 @@ import { CreatePersonDto } from './dtos/create-person.dto';
 import { UpdatePersonDto } from './dtos/update-person.dto';
 import { PersonsService } from './persons.service';
 import { Person } from './person.entity';
+import { Partnership } from './partnership.entity';
 import { PromoteAncestorDto } from './dtos/promote-ancestor.dto';
+import { UpdatePartnershipDto } from './dtos/update-partnership.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 
@@ -119,5 +121,36 @@ export class PersonsController {
       body.parentType,
       req.user.treeId,
     );
+  }
+
+  // ============ Partnership Endpoints ============
+
+  @Get('/partnerships/all')
+  async getPartnerships(
+    @Request() req: AuthenticatedRequest,
+  ): Promise<Partnership[]> {
+    return this.personsService.getPartnerships(req.user.treeId);
+  }
+
+  @Get('/partnerships/pair')
+  async getPartnership(
+    @Query('person1Id') person1Id: string,
+    @Query('person2Id') person2Id: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<Partnership | null> {
+    return this.personsService.getPartnership(
+      Number(person1Id),
+      Number(person2Id),
+      req.user.treeId,
+    );
+  }
+
+  @Post('/partnerships')
+  @UseGuards(AdminGuard)
+  async upsertPartnership(
+    @Body() dto: UpdatePartnershipDto,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<Partnership> {
+    return this.personsService.upsertPartnership(dto, req.user.treeId);
   }
 }

@@ -9,11 +9,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CreatePersonDto } from './dtos/create-person.dto';
 import { UpdatePersonDto } from './dtos/update-person.dto';
 import { PromoteAncestorDto } from './dtos/promote-ancestor.dto';
+import { Partnership } from './partnership.entity';
+import { UpdatePartnershipDto } from './dtos/update-partnership.dto';
 
 @Injectable()
 export class PersonsService {
   constructor(
     @InjectRepository(Person) private personRepository: Repository<Person>,
+    @InjectRepository(Partnership)
+    private partnershipRepository: Repository<Partnership>,
     private dataSource: DataSource,
   ) {}
 
@@ -898,5 +902,72 @@ export class PersonsService {
       message: `Deleted orphaned persons: ${names}`,
       deleted: orphanedPersons.length,
     };
+  }
+
+  // ============ Partnership Methods ============
+
+  /**
+   * Get all partnerships for a tree
+   */
+  async getPartnerships(treeId: string): Promise<Partnership[]> {
+    return this.partnershipRepository.find({ where: { treeId } });
+  }
+
+  /**
+   * Get a specific partnership by person pair
+   */
+  async getPartnership(
+    person1Id: number,
+    person2Id: number,
+    treeId: string,
+  ): Promise<Partnership | null> {
+    // Check both orderings since person1/person2 order doesn't matter
+    const partnership = await this.partnershipRepository.findOne({
+      where: [
+        { person1Id, person2Id, treeId },
+        { person1Id: person2Id, person2Id: person1Id, treeId },
+      ],
+    });
+    return partnership;
+  }
+
+  /**
+   * Create or update a partnership
+   */
+  async upsertPartnership(
+    dto: UpdatePartnershipDto,
+    treeId: string,
+  ): Promise<Partnership> {
+    // Check if partnership already exists (in either order)
+    let partnership = await this.getPartnership(
+      dto.person1Id,
+      dto.person2Id,
+      treeId,
+    );
+
+    if (partnership) {
+      // Update existing
+      Object.assign(partnership, {
+        marriageDate: dto.marriageDate,
+        marriagePlace: dto.marriagePlace,
+        divorced: dto.divorced ?? false,
+        divorceDate: dto.divorceDate,
+        notes: dto.notes,
+      });
+    } else {
+      // Create new
+      partnership = this.partnershipRepository.create({
+        treeId,
+        person1Id: dto.person1Id,
+        person2Id: dto.person2Id,
+        marriageDate: dto.marriageDate,
+        marriagePlace: dto.marriagePlace,
+        divorced: dto.divorced ?? false,
+        divorceDate: dto.divorceDate,
+        notes: dto.notes,
+      });
+    }
+
+    return this.partnershipRepository.save(partnership);
   }
 }

@@ -36,6 +36,10 @@ export class UpdatePersonDto {
   @IsOptional()
   trivia?: string;
 
+  @IsBoolean()
+  @IsOptional()
+  deceased?: boolean;
+
   @ValidateIf((o: { fatherId?: number | null }) => o.fatherId !== null)
   @IsNumber()
   @IsOptional()

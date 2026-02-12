@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { SystemAdminModule } from './system-admin/system-admin.module';
 import { EmailModule } from './email/email.module';
 import { Person } from './persons/person.entity';
+import { Partnership } from './persons/partnership.entity';
 import { Tree } from './trees/tree.entity';
 import { SystemAdmin } from './system-admin/entities/system-admin.entity';
 
@@ -16,7 +17,7 @@ import { SystemAdmin } from './system-admin/entities/system-admin.entity';
     TypeOrmModule.forRoot({
       type: 'sqlite',
       database: 'family-tree-db.sqlite',
-      entities: [Person, Tree, SystemAdmin],
+      entities: [Person, Partnership, Tree, SystemAdmin],
       synchronize: true,
     }),
     EmailModule,
