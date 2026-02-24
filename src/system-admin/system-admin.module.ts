@@ -6,10 +6,11 @@ import { SystemAdminService } from './system-admin.service';
 import { SystemAdminController } from './system-admin.controller';
 import { Tree } from '../trees/tree.entity';
 import { Person } from '../persons/person.entity';
+import { User } from '../users/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([SystemAdmin, Tree, Person]),
+    TypeOrmModule.forFeature([SystemAdmin, Tree, Person, User]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
       signOptions: { expiresIn: '24h' },

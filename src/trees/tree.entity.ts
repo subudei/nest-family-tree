@@ -2,11 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import type { Person } from '../persons/person.entity';
+import type { User } from '../users/user.entity';
 
 @Entity()
 export class Tree {
@@ -16,37 +19,20 @@ export class Tree {
   @Column()
   name: string;
 
-  // Admin credentials
-  @Column({ unique: true })
-  adminUsername: string;
-
-  @Column()
-  adminPasswordHash: string;
-
-  // Guest credentials (for sharing read-only access)
+  // Guest credentials (read-only access, shared with family members)
   @Column({ unique: true })
   guestUsername: string;
 
   @Column()
   guestPasswordHash: string;
 
-  // Optional email for password recovery
-  @Column({ nullable: true })
-  ownerEmail?: string;
+  // Owner (the User who created and manages this tree)
+  @Column()
+  ownerId: string;
 
-  // Optional owner name fields
-  @Column({ nullable: true })
-  firstName?: string;
-
-  @Column({ nullable: true })
-  lastName?: string;
-
-  // Password reset fields
-  @Column({ nullable: true })
-  resetPasswordToken?: string;
-
-  @Column({ nullable: true })
-  resetPasswordExpires?: Date;
+  @ManyToOne('User', 'trees', { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'ownerId' })
+  owner: User;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -55,7 +41,6 @@ export class Tree {
   updatedAt: Date;
 
   // Relation to persons in this tree
-  // Using string reference 'Person' to avoid circular dependency issues
   @OneToMany('Person', 'tree')
   persons: Person[];
 }

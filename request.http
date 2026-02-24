@@ -2,30 +2,29 @@
 ### AUTH ENDPOINTS
 #########################################
 
-### Register a new tree (creates admin + guest accounts)
+### Register a new account + first tree (owner login after)
 POST http://localhost:3001/auth/register
 Content-Type: application/json
 
 {
+  "email": "mike@example.com",
+  "password": "Test1234!",
   "treeName": "Mike's Family Tree",
-  "adminUsername": "MikeTheGreat",
-  "adminPassword": "Test1234!",
   "guestUsername": "MikesGuest",
-  "guestPassword": "Guest123",
-  "email": "mike@example.com"
+  "guestPassword": "Guest123"
 }
 
-### Login as admin
-POST http://localhost:3001/auth/login
+### Login as owner (email + password)
+POST http://localhost:3001/auth/login/owner
 Content-Type: application/json
 
 {
-  "username": "MikeTheGreat",
+  "email": "mike@example.com",
   "password": "Test1234!"
 }
 
-### Login as guest
-POST http://localhost:3001/auth/login
+### Login as guest (guestUsername + password)
+POST http://localhost:3001/auth/login/guest
 Content-Type: application/json
 
 {
@@ -38,26 +37,114 @@ Content-Type: application/json
 GET http://localhost:3001/auth/me
 Authorization: Bearer <TOKEN>
 
-### Test: Duplicate username (should fail with 409)
+### Get owner profile
+GET http://localhost:3001/auth/profile
+Authorization: Bearer <OWNER_TOKEN>
+
+### Update owner profile
+PATCH http://localhost:3001/auth/profile
+Content-Type: application/json
+Authorization: Bearer <OWNER_TOKEN>
+
+{
+  "firstName": "Mike",
+  "lastName": "Smith"
+}
+
+### Forgot password (owner only — sends reset link via email)
+POST http://localhost:3001/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "mike@example.com"
+}
+
+### Reset password (use token from email)
+POST http://localhost:3001/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "<RESET_TOKEN>",
+  "newPassword": "NewPass456!"
+}
+
+### Test: Duplicate email (should fail with 409)
 POST http://localhost:3001/auth/register
 Content-Type: application/json
 
 {
+  "email": "mike@example.com",
+  "password": "Test1234!",
   "treeName": "Another Tree",
-  "adminUsername": "MikeTheGreat",
-  "adminPassword": "Test1234!",
   "guestUsername": "AnotherGuest",
   "guestPassword": "Guest123"
 }
 
-### Test: Invalid credentials (should fail with 401)
-POST http://localhost:3001/auth/login
+### Test: Duplicate guest username (should fail with 409)
+POST http://localhost:3001/auth/register
 Content-Type: application/json
 
 {
-  "username": "MikeTheGreat",
+  "email": "someone@example.com",
+  "password": "Test1234!",
+  "treeName": "Yet Another Tree",
+  "guestUsername": "MikesGuest",
+  "guestPassword": "Guest123"
+}
+
+### Test: Invalid owner credentials (should fail with 401)
+POST http://localhost:3001/auth/login/owner
+Content-Type: application/json
+
+{
+  "email": "mike@example.com",
   "password": "WrongPassword"
 }
+
+#########################################
+### TREES ENDPOINTS (owner only)
+#########################################
+
+### List all trees owned by authenticated user
+GET http://localhost:3001/trees
+Authorization: Bearer <OWNER_TOKEN>
+
+### Create a second tree
+POST http://localhost:3001/trees
+Content-Type: application/json
+Authorization: Bearer <OWNER_TOKEN>
+
+{
+  "treeName": "My Second Tree",
+  "guestUsername": "SecondGuest",
+  "guestPassword": "Guest456"
+}
+
+### Get a specific tree
+GET http://localhost:3001/trees/<TREE_ID>
+Authorization: Bearer <OWNER_TOKEN>
+
+### Rename a tree
+PATCH http://localhost:3001/trees/<TREE_ID>
+Content-Type: application/json
+Authorization: Bearer <OWNER_TOKEN>
+
+{
+  "name": "Updated Tree Name"
+}
+
+### Change guest password for a tree
+PATCH http://localhost:3001/trees/<TREE_ID>/guest-password
+Content-Type: application/json
+Authorization: Bearer <OWNER_TOKEN>
+
+{
+  "newGuestPassword": "NewGuest789"
+}
+
+### Delete a tree (WARNING: deletes all persons in the tree too)
+DELETE http://localhost:3001/trees/<TREE_ID>
+Authorization: Bearer <OWNER_TOKEN>
 
 #########################################
 ### PERSONS ENDPOINTS

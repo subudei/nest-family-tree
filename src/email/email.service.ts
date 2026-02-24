@@ -29,8 +29,6 @@ export class EmailService {
 
   async sendPasswordResetEmail(
     email: string,
-    treeName: string,
-    adminUsername: string,
     resetToken: string,
   ): Promise<boolean> {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -39,8 +37,6 @@ export class EmailService {
     const html = `
       <h2>Password Reset Request</h2>
       <p>You requested a password reset for your Family Tree account.</p>
-      <p><strong>Tree:</strong> ${treeName}</p>
-      <p><strong>Admin Username:</strong> ${adminUsername}</p>
       <p>Click the link below to reset your password:</p>
       <a href="${resetUrl}" style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px;">
         Reset Password
@@ -55,7 +51,7 @@ export class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: `Password Reset for ${treeName}`,
+      subject: 'Password Reset - Family Tree',
       html,
     });
   }

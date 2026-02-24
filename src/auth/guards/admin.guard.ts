@@ -7,15 +7,18 @@ import {
 import { Request } from 'express';
 
 interface AuthenticatedUser {
-  treeId: string;
-  role: 'admin' | 'guest';
-  treeName: string;
+  type: 'owner' | 'guest';
+  userId?: string;
+  email?: string;
+  treeId?: string;
+  treeName?: string;
 }
 
 interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
+// Allows only logged-in owners (email+password accounts)
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
@@ -26,8 +29,8 @@ export class AdminGuard implements CanActivate {
       throw new ForbiddenException('User not authenticated');
     }
 
-    if (user.role !== 'admin') {
-      throw new ForbiddenException('Admin access required');
+    if (user.type !== 'owner') {
+      throw new ForbiddenException('Owner access required');
     }
 
     return true;

@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { SystemAdmin } from './entities/system-admin.entity';
 import { Tree } from '../trees/tree.entity';
 import { Person } from '../persons/person.entity';
+import { User } from '../users/user.entity';
 import {
   DashboardStatsDto,
   TreeSummaryDto,
@@ -26,6 +27,8 @@ export class SystemAdminService {
     private readonly treeRepository: Repository<Tree>,
     @InjectRepository(Person)
     private readonly personRepository: Repository<Person>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   /**
@@ -231,10 +234,15 @@ export class SystemAdminService {
         const personCount = await this.personRepository.count({
           where: { treeId: tree.id },
         });
+        const owner = await this.userRepository.findOne({
+          where: { id: tree.ownerId },
+        });
         return {
           id: tree.id,
           name: tree.name,
-          adminUsername: tree.adminUsername,
+          guestUsername: tree.guestUsername,
+          ownerId: tree.ownerId,
+          ownerEmail: owner?.email,
           personCount,
           createdAt: tree.createdAt,
           updatedAt: tree.updatedAt,
@@ -267,7 +275,7 @@ export class SystemAdminService {
     const skip = (page - 1) * limit;
 
     const whereClause = search
-      ? [{ name: Like(`%${search}%`) }, { adminUsername: Like(`%${search}%`) }]
+      ? [{ name: Like(`%${search}%`) }, { guestUsername: Like(`%${search}%`) }]
       : undefined;
 
     const [treesRaw, total] = await this.treeRepository.findAndCount({
@@ -283,10 +291,15 @@ export class SystemAdminService {
         const personCount = await this.personRepository.count({
           where: { treeId: tree.id },
         });
+        const owner = await this.userRepository.findOne({
+          where: { id: tree.ownerId },
+        });
         return {
           id: tree.id,
           name: tree.name,
-          adminUsername: tree.adminUsername,
+          guestUsername: tree.guestUsername,
+          ownerId: tree.ownerId,
+          ownerEmail: owner?.email,
           personCount,
           createdAt: tree.createdAt,
           updatedAt: tree.updatedAt,
@@ -318,6 +331,10 @@ export class SystemAdminService {
       order: { id: 'ASC' },
     });
 
+    const owner = await this.userRepository.findOne({
+      where: { id: tree.ownerId },
+    });
+
     const personSummaries: PersonSummaryDto[] = persons.map((p) => ({
       id: p.id,
       firstName: p.firstName,
@@ -333,9 +350,9 @@ export class SystemAdminService {
     return {
       id: tree.id,
       name: tree.name,
-      adminUsername: tree.adminUsername,
       guestUsername: tree.guestUsername,
-      ownerEmail: tree.ownerEmail,
+      ownerId: tree.ownerId,
+      ownerEmail: owner?.email,
       personCount: persons.length,
       createdAt: tree.createdAt,
       updatedAt: tree.updatedAt,
@@ -368,6 +385,10 @@ export class SystemAdminService {
       order: { id: 'ASC' },
     });
 
+    const owner = await this.userRepository.findOne({
+      where: { id: tree.ownerId },
+    });
+
     const personSummaries: PersonSummaryDto[] = persons.map((p) => ({
       id: p.id,
       firstName: p.firstName,
@@ -385,9 +406,9 @@ export class SystemAdminService {
       tree: {
         id: tree.id,
         name: tree.name,
-        adminUsername: tree.adminUsername,
         guestUsername: tree.guestUsername,
-        ownerEmail: tree.ownerEmail,
+        ownerId: tree.ownerId,
+        ownerEmail: owner?.email,
         createdAt: tree.createdAt,
         updatedAt: tree.updatedAt,
       },

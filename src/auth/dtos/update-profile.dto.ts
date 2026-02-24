@@ -22,10 +22,12 @@ export class UpdateProfileDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })
   email?: string;
 
+  // Required when changing password
   @IsOptional()
   @IsString()
   currentPassword?: string;
 
+  // New owner account password
   @IsOptional()
   @IsString()
   @MinLength(8)
@@ -35,10 +37,4 @@ export class UpdateProfileDto {
       'New password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   newPassword?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(6)
-  @MaxLength(100)
-  newGuestPassword?: string;
 }

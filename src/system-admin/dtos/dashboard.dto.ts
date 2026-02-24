@@ -13,15 +13,15 @@ export class DashboardStatsDto {
 export class TreeSummaryDto {
   id: string;
   name: string;
-  adminUsername: string;
+  guestUsername: string;
+  ownerId: string;
+  ownerEmail?: string;
   personCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export class TreeDetailDto extends TreeSummaryDto {
-  guestUsername: string;
-  ownerEmail?: string;
   persons: PersonSummaryDto[];
 }
 
@@ -62,8 +62,8 @@ export class TreeExportDto {
   tree: {
     id: string;
     name: string;
-    adminUsername: string;
     guestUsername: string;
+    ownerId: string;
     ownerEmail?: string;
     createdAt: Date;
     updatedAt: Date;

@@ -9,336 +9,306 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { TreesService } from '../trees/trees.service';
+import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { RegisterDto } from './dtos/register.dto';
-import { LoginDto } from './dtos/login.dto';
+import { OwnerLoginDto, GuestLoginDto } from './dtos/login.dto';
 import { UpdateProfileDto } from './dtos/update-profile.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
-import { JwtPayload } from './strategies/jwt.strategy';
+import { OwnerJwtPayload, GuestJwtPayload } from './strategies/jwt.strategy';
+
+const SALT_ROUNDS = 10;
 
 @Injectable()
 export class AuthService {
   constructor(
+    private usersService: UsersService,
     private treesService: TreesService,
     private jwtService: JwtService,
     private emailService: EmailService,
   ) {}
 
-  async register(registerDto: RegisterDto) {
-    const {
-      treeName,
-      adminUsername,
-      adminPassword,
-      guestUsername,
-      guestPassword,
-      email,
-    } = registerDto;
+  // ─── Register ──────────────────────────────────────────────────────────────
 
-    // Check if admin username is taken
-    if (await this.treesService.isUsernameTaken(adminUsername)) {
-      throw new ConflictException('Admin username already taken');
+  async register(dto: RegisterDto) {
+    const { email, password, treeName, guestUsername, guestPassword } = dto;
+
+    // Check email is not already registered
+    if (await this.usersService.isEmailTaken(email)) {
+      throw new ConflictException('An account with this email already exists');
     }
 
-    // Check if guest username is taken
-    if (await this.treesService.isUsernameTaken(guestUsername)) {
-      throw new ConflictException('Guest username already taken');
+    // Check guest username is globally unique
+    if (await this.treesService.isGuestUsernameTaken(guestUsername)) {
+      throw new ConflictException('Guest username is already taken');
     }
 
-    // Check if admin and guest usernames are the same
-    if (adminUsername.toLowerCase() === guestUsername.toLowerCase()) {
-      throw new ConflictException(
-        'Admin and guest usernames must be different',
-      );
-    }
+    // Hash owner account password and guest password
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const guestPasswordHash = await bcrypt.hash(guestPassword, SALT_ROUNDS);
 
-    // Hash passwords
-    const saltRounds = 10;
-    const adminPasswordHash = await bcrypt.hash(adminPassword, saltRounds);
-    const guestPasswordHash = await bcrypt.hash(guestPassword, saltRounds);
+    // Create owner account
+    const user = await this.usersService.create({ email, passwordHash });
 
-    // Create the tree
+    // Create the first tree linked to this owner
     const tree = await this.treesService.create({
       name: treeName,
-      adminUsername,
-      adminPasswordHash,
+      ownerId: user.id,
       guestUsername,
       guestPasswordHash,
-      ownerEmail: email,
     });
 
-    // Generate JWT for the new admin
-    const payload: JwtPayload = {
-      sub: tree.id,
-      role: 'admin',
-      treeName: tree.name,
+    // Return owner JWT
+    const payload: OwnerJwtPayload = {
+      sub: user.id,
+      type: 'owner',
+      email: user.email,
     };
 
     return {
       accessToken: this.jwtService.sign(payload),
-      treeId: tree.id,
-      treeName: tree.name,
-      role: 'admin' as const,
+      type: 'owner' as const,
+      userId: user.id,
+      email: user.email,
+      trees: [
+        {
+          id: tree.id,
+          name: tree.name,
+          guestUsername: tree.guestUsername,
+          createdAt: tree.createdAt,
+        },
+      ],
     };
   }
 
-  async login(loginDto: LoginDto) {
-    const { username, password } = loginDto;
+  // ─── Owner login (email + password) ────────────────────────────────────────
 
-    // Find tree by username (checks both admin and guest)
-    const result = await this.treesService.findByUsername(username);
+  async loginOwner(dto: OwnerLoginDto) {
+    const { email, password } = dto;
 
-    if (!result) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const { tree, role } = result;
-
-    // Get the correct password hash based on role
-    const passwordHash =
-      role === 'admin' ? tree.adminPasswordHash : tree.guestPasswordHash;
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, passwordHash);
-
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Generate JWT
-    const payload: JwtPayload = {
+    // Load all trees this owner has
+    const trees = await this.treesService.findAllByOwner(user.id);
+
+    const payload: OwnerJwtPayload = {
+      sub: user.id,
+      type: 'owner',
+      email: user.email,
+    };
+
+    return {
+      accessToken: this.jwtService.sign(payload),
+      type: 'owner' as const,
+      userId: user.id,
+      email: user.email,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      trees: trees.map((t) => ({
+        id: t.id,
+        name: t.name,
+        guestUsername: t.guestUsername,
+        createdAt: t.createdAt,
+      })),
+    };
+  }
+
+  // ─── Guest login (guestUsername + password) ─────────────────────────────────
+
+  async loginGuest(dto: GuestLoginDto) {
+    const { username, password } = dto;
+
+    const tree = await this.treesService.findByGuestUsername(username);
+    if (!tree) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      tree.guestPasswordHash,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const payload: GuestJwtPayload = {
       sub: tree.id,
-      role,
+      type: 'guest',
       treeName: tree.name,
     };
 
     return {
       accessToken: this.jwtService.sign(payload),
+      type: 'guest' as const,
       treeId: tree.id,
       treeName: tree.name,
-      role,
     };
   }
 
-  async getMe(user: {
-    treeId: string;
-    role: 'admin' | 'guest';
-    treeName: string;
-  }) {
-    // For admins, fetch firstName and lastName from the tree
-    if (user.role === 'admin') {
-      const tree = await this.treesService.findById(user.treeId);
+  // ─── Get current user (from JWT) ────────────────────────────────────────────
+
+  async getMe(
+    user:
+      | { type: 'owner'; userId: string; email: string }
+      | { type: 'guest'; treeId: string; treeName: string },
+  ) {
+    if (user.type === 'owner') {
+      const dbUser = await this.usersService.findById(user.userId);
+      const trees = await this.treesService.findAllByOwner(user.userId);
       return {
-        treeId: user.treeId,
-        role: user.role,
-        treeName: user.treeName,
-        firstName: tree?.firstName || '',
-        lastName: tree?.lastName || '',
-      };
-    }
-
-    return {
-      treeId: user.treeId,
-      role: user.role,
-      treeName: user.treeName,
-    };
-  }
-
-  async getProfile(treeId: string) {
-    const tree = await this.treesService.findById(treeId);
-    if (!tree) {
-      throw new UnauthorizedException('Tree not found');
-    }
-
-    return {
-      treeId: tree.id,
-      treeName: tree.name,
-      email: tree.ownerEmail || '',
-      firstName: tree.firstName || '',
-      lastName: tree.lastName || '',
-      adminUsername: tree.adminUsername,
-      guestUsername: tree.guestUsername,
-      createdAt: tree.createdAt,
-    };
-  }
-
-  async updateProfile(treeId: string, updateProfileDto: UpdateProfileDto) {
-    const tree = await this.treesService.findById(treeId);
-    if (!tree) {
-      throw new UnauthorizedException('Tree not found');
-    }
-
-    const updateData: {
-      ownerEmail?: string;
-      firstName?: string;
-      lastName?: string;
-      adminPasswordHash?: string;
-      guestPasswordHash?: string;
-    } = {};
-
-    // Update firstName if provided
-    if (updateProfileDto.firstName !== undefined) {
-      updateData.firstName = updateProfileDto.firstName;
-    }
-
-    // Update lastName if provided
-    if (updateProfileDto.lastName !== undefined) {
-      updateData.lastName = updateProfileDto.lastName;
-    }
-
-    // Update email if provided
-    if (updateProfileDto.email !== undefined) {
-      updateData.ownerEmail = updateProfileDto.email;
-    }
-
-    // Update admin password if new password is provided
-    if (updateProfileDto.newPassword) {
-      if (!updateProfileDto.currentPassword) {
-        throw new BadRequestException(
-          'Current password is required to change password',
-        );
-      }
-
-      // Verify current password
-      const isPasswordValid = await bcrypt.compare(
-        updateProfileDto.currentPassword,
-        tree.adminPasswordHash,
-      );
-
-      if (!isPasswordValid) {
-        throw new UnauthorizedException('Current password is incorrect');
-      }
-
-      // Hash new password
-      const saltRounds = 10;
-      updateData.adminPasswordHash = await bcrypt.hash(
-        updateProfileDto.newPassword,
-        saltRounds,
-      );
-    }
-
-    // Update guest password if provided
-    if (updateProfileDto.newGuestPassword) {
-      if (!updateProfileDto.currentPassword) {
-        throw new BadRequestException(
-          'Current password is required to change guest password',
-        );
-      }
-
-      // Verify current (admin) password
-      const isPasswordValid = await bcrypt.compare(
-        updateProfileDto.currentPassword,
-        tree.adminPasswordHash,
-      );
-
-      if (!isPasswordValid) {
-        throw new UnauthorizedException('Current password is incorrect');
-      }
-
-      // Hash new guest password
-      const saltRounds = 10;
-      updateData.guestPasswordHash = await bcrypt.hash(
-        updateProfileDto.newGuestPassword,
-        saltRounds,
-      );
-    }
-
-    // Only update if there's something to update
-    if (Object.keys(updateData).length === 0) {
-      return { success: true, message: 'No changes made' };
-    }
-
-    await this.treesService.update(treeId, updateData);
-
-    return { success: true, message: 'Profile updated successfully' };
-  }
-
-  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
-    const { email, treeId } = forgotPasswordDto;
-
-    // Find all trees with this email
-    const trees = await this.treesService.findByEmail(email);
-
-    if (trees.length === 0) {
-      // Don't reveal if email exists for security
-      return {
-        message:
-          'If an account with this email exists, you will receive a password reset link.',
-        requiresTreeSelection: false,
-      };
-    }
-
-    // If treeId is not provided and there are multiple trees, return tree selection
-    if (!treeId && trees.length > 1) {
-      return {
-        message: 'Multiple trees found. Please select which tree to reset.',
-        requiresTreeSelection: true,
+        type: 'owner' as const,
+        userId: user.userId,
+        email: dbUser?.email || user.email,
+        firstName: dbUser?.firstName || '',
+        lastName: dbUser?.lastName || '',
         trees: trees.map((t) => ({
           id: t.id,
           name: t.name,
-          adminUsername: t.adminUsername,
+          guestUsername: t.guestUsername,
+          createdAt: t.createdAt,
         })),
       };
     }
 
-    // Find the specific tree (either the only one, or the selected one)
-    const tree = treeId ? trees.find((t) => t.id === treeId) : trees[0];
+    return {
+      type: 'guest' as const,
+      treeId: user.treeId,
+      treeName: user.treeName,
+    };
+  }
 
-    if (!tree) {
-      throw new NotFoundException('Tree not found');
+  // ─── Owner profile ──────────────────────────────────────────────────────────
+
+  async getProfile(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
     }
 
-    // Generate reset token
+    const trees = await this.treesService.findAllByOwner(userId);
+
+    return {
+      userId: user.id,
+      email: user.email,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      createdAt: user.createdAt,
+      trees: trees.map((t) => ({
+        id: t.id,
+        name: t.name,
+        guestUsername: t.guestUsername,
+        createdAt: t.createdAt,
+      })),
+    };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const updateData: Partial<{
+      email: string;
+      firstName: string;
+      lastName: string;
+      passwordHash: string;
+    }> = {};
+
+    if (dto.firstName !== undefined) updateData.firstName = dto.firstName;
+    if (dto.lastName !== undefined) updateData.lastName = dto.lastName;
+    if (dto.email !== undefined) updateData.email = dto.email;
+
+    if (dto.newPassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to change password',
+        );
+      }
+      const valid = await bcrypt.compare(
+        dto.currentPassword,
+        user.passwordHash,
+      );
+      if (!valid) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+      updateData.passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return { success: true, message: 'No changes made' };
+    }
+
+    await this.usersService.update(userId, updateData);
+    return { success: true, message: 'Profile updated successfully' };
+  }
+
+  // ─── Password reset ─────────────────────────────────────────────────────────
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const { email } = dto;
+
+    const user = await this.usersService.findByEmail(email);
+
+    if (!user) {
+      // Don't reveal whether email exists
+      return {
+        message:
+          'If an account with this email exists, you will receive a password reset link.',
+      };
+    }
+
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    // Save token to database
-    await this.treesService.update(tree.id, {
+    await this.usersService.update(user.id, {
       resetPasswordToken: resetToken,
       resetPasswordExpires: resetExpires,
     });
 
-    // Send email
-    await this.emailService.sendPasswordResetEmail(
-      email,
-      tree.name,
-      tree.adminUsername,
-      resetToken,
-    );
+    await this.emailService.sendPasswordResetEmail(email, resetToken);
 
     return {
       message:
         'If an account with this email exists, you will receive a password reset link.',
-      requiresTreeSelection: false,
     };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto) {
-    const { token, newPassword } = resetPasswordDto;
+  async resetPassword(dto: ResetPasswordDto) {
+    const { token, newPassword } = dto;
 
-    // Find tree by reset token
-    const tree = await this.treesService.findByResetToken(token);
-
-    if (!tree) {
+    const user = await this.usersService.findByResetToken(token);
+    if (!user) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Check if token is expired
-    if (!tree.resetPasswordExpires || tree.resetPasswordExpires < new Date()) {
+    if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
       throw new BadRequestException('Reset token has expired');
     }
 
-    // Hash new password
-    const saltRounds = 10;
-    const adminPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-    // Update password and clear reset token
-    await this.treesService.update(tree.id, {
-      adminPasswordHash,
+    await this.usersService.update(user.id, {
+      passwordHash,
       resetPasswordToken: undefined,
       resetPasswordExpires: undefined,
     });
 
     return { success: true, message: 'Password has been reset successfully' };
+  }
+
+  // ─── Tree not found helper ──────────────────────────────────────────────────
+
+  private throwNotFound(msg: string): never {
+    throw new NotFoundException(msg);
   }
 }

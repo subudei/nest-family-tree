@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -19,27 +20,51 @@ import { PromoteAncestorDto } from './dtos/promote-ancestor.dto';
 import { UpdatePartnershipDto } from './dtos/update-partnership.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
+import { TreesService } from '../trees/trees.service';
+
+type AuthUser =
+  | { type: 'owner'; userId: string; email: string }
+  | { type: 'guest'; treeId: string; treeName: string };
 
 interface AuthenticatedRequest {
-  user: {
-    treeId: string;
-    role: 'admin' | 'guest';
-    treeName: string;
-  };
+  user: AuthUser;
+  headers: Record<string, string>;
 }
 
 @Controller('persons')
 @UseGuards(JwtAuthGuard)
 export class PersonsController {
-  constructor(private readonly personsService: PersonsService) {}
+  constructor(
+    private readonly personsService: PersonsService,
+    private readonly treesService: TreesService,
+  ) {}
+
+  /** Resolves which tree the request is for.
+   * - Guest JWT: treeId is embedded in the token.
+   * - Owner JWT: treeId comes from the X-Tree-Id header; ownership is verified.
+   */
+  private async resolveTreeId(req: AuthenticatedRequest): Promise<string> {
+    const user = req.user;
+    if (user.type === 'guest') return user.treeId;
+
+    const treeId = req.headers['x-tree-id'];
+    if (!treeId) throw new ForbiddenException('No tree selected');
+
+    const tree = await this.treesService.findById(treeId);
+    if (!tree || tree.ownerId !== user.userId)
+      throw new ForbiddenException('Access denied to this tree');
+
+    return treeId;
+  }
 
   @Post()
   @UseGuards(AdminGuard)
-  create(
+  async create(
     @Body() createPersonDto: CreatePersonDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.personsService.create(createPersonDto, req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.create(createPersonDto, treeId);
   }
 
   @Get()
@@ -47,17 +72,19 @@ export class PersonsController {
     @Query('name') name: string | undefined,
     @Request() req: AuthenticatedRequest,
   ): Promise<Person[]> {
+    const treeId = await this.resolveTreeId(req);
     if (name) {
-      return await this.personsService.findPersonByName(name, req.user.treeId);
+      return await this.personsService.findPersonByName(name, treeId);
     }
-    return await this.personsService.findAllPersons(req.user.treeId);
+    return await this.personsService.findAllPersons(treeId);
   }
 
   @Get('/progenitor')
   async findProgenitor(
     @Request() req: AuthenticatedRequest,
   ): Promise<Person | null> {
-    return await this.personsService.findProgenitor(req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return await this.personsService.findProgenitor(treeId);
   }
 
   @Post('/promote-ancestor')
@@ -66,7 +93,8 @@ export class PersonsController {
     @Body() dto: PromoteAncestorDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<Person> {
-    return await this.personsService.promoteAncestor(dto, req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return await this.personsService.promoteAncestor(dto, treeId);
   }
 
   @Delete('/orphans')
@@ -74,24 +102,27 @@ export class PersonsController {
   async deleteOrphanedPersons(
     @Request() req: AuthenticatedRequest,
   ): Promise<{ message: string; deleted: number }> {
-    return await this.personsService.deleteOrphanedPersons(req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return await this.personsService.deleteOrphanedPersons(treeId);
   }
 
   @Get('/:id')
-  findPersonById(
+  async findPersonById(
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.personsService.findPersonById(id, req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.findPersonById(id, treeId);
   }
 
   @Delete('/:id')
   @UseGuards(AdminGuard)
-  removePerson(
+  async removePerson(
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ message: string }> {
-    return this.personsService.removePerson(id, req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.removePerson(id, treeId);
   }
 
   @Patch('/:id')
@@ -101,11 +132,8 @@ export class PersonsController {
     @Body() updatePersonDto: UpdatePersonDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<Person> {
-    return this.personsService.updatePerson(
-      id,
-      updatePersonDto,
-      req.user.treeId,
-    );
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.updatePerson(id, updatePersonDto, treeId);
   }
 
   @Patch('/:id/link-children')
@@ -115,11 +143,12 @@ export class PersonsController {
     @Body() body: { childrenIds: number[]; parentType: 'father' | 'mother' },
     @Request() req: AuthenticatedRequest,
   ): Promise<{ message: string; updated: number }> {
+    const treeId = await this.resolveTreeId(req);
     return this.personsService.linkChildrenToParent(
       Number(parentId),
       body.childrenIds,
       body.parentType,
-      req.user.treeId,
+      treeId,
     );
   }
 
@@ -129,7 +158,8 @@ export class PersonsController {
   async getPartnerships(
     @Request() req: AuthenticatedRequest,
   ): Promise<Partnership[]> {
-    return this.personsService.getPartnerships(req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.getPartnerships(treeId);
   }
 
   @Get('/partnerships/pair')
@@ -138,10 +168,11 @@ export class PersonsController {
     @Query('person2Id') person2Id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<Partnership | null> {
+    const treeId = await this.resolveTreeId(req);
     return this.personsService.getPartnership(
       Number(person1Id),
       Number(person2Id),
-      req.user.treeId,
+      treeId,
     );
   }
 
@@ -151,6 +182,7 @@ export class PersonsController {
     @Body() dto: UpdatePartnershipDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<Partnership> {
-    return this.personsService.upsertPartnership(dto, req.user.treeId);
+    const treeId = await this.resolveTreeId(req);
+    return this.personsService.upsertPartnership(dto, treeId);
   }
 }
