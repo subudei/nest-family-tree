@@ -28,7 +28,8 @@ export class SystemAdminGuard implements CanActivate {
 
     try {
       const payload = this.jwtService.verify<SystemAdminJwtPayload>(token, {
-        secret: process.env.JWT_SECRET || 'your-secret-key',
+        secret:
+          process.env.JWT_SECRET || 'your-secret-key-change-in-production',
       });
 
       if (payload.role !== 'systemadmin') {

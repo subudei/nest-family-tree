@@ -1,9 +1,11 @@
 import {
   Column,
+  CreateDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Tree } from '../trees/tree.entity';
 
@@ -64,4 +66,10 @@ export class Person {
   // @ManyToOne(() => Person, { nullable: true })
   // @JoinColumn({ name: 'motherId' })
   // mother?: Person;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

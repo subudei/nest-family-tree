@@ -14,6 +14,13 @@ import { UpdatePartnershipDto } from './dtos/update-partnership.dto';
 
 @Injectable()
 export class PersonsService {
+  // ── Biological / sanity-check constants ──────────────────────────────
+  private static readonly MIN_PARENT_AGE = 14;
+  private static readonly MAX_FATHER_AGE = 120;
+  private static readonly MAX_MOTHER_AGE = 70;
+  private static readonly MAX_LIFESPAN = 120; // assumed max if no deathDate
+  private static readonly MIN_BIRTH_YEAR = 1; // no BC / negative years
+
   constructor(
     @InjectRepository(Person) private personRepository: Repository<Person>,
     @InjectRepository(Partnership)
@@ -60,6 +67,14 @@ export class PersonsService {
     createPersonDto: CreatePersonDto,
     treeId: string,
   ): Promise<Person> {
+    // Step 0: Validate birth/death years are sane
+    this.validateYearRange(createPersonDto.birthDate, 'Birth');
+    this.validateYearRange(createPersonDto.deathDate, 'Death');
+    this.validateDeathAfterBirth(
+      createPersonDto.birthDate,
+      createPersonDto.deathDate,
+    );
+
     // Step 1: Validate that person is connected to the tree
     await this.validateNotOrphan(createPersonDto, treeId);
 
@@ -161,8 +176,6 @@ export class PersonsService {
     parentBirthDate?: string,
     parentDeathDate?: string,
   ): void {
-    const MIN_PARENT_AGE = 14;
-
     // Validate death is after birth
     if (parentBirthDate && parentDeathDate) {
       const birthYear = parseInt(parentBirthDate.split('-')[0], 10);
@@ -178,6 +191,10 @@ export class PersonsService {
     const parentDeathYear = parentDeathDate
       ? parseInt(parentDeathDate.split('-')[0], 10)
       : null;
+    const maxParentAge =
+      parentGender === 'male'
+        ? PersonsService.MAX_FATHER_AGE
+        : PersonsService.MAX_MOTHER_AGE;
 
     for (const child of children) {
       if (!child.birthDate) continue;
@@ -186,10 +203,28 @@ export class PersonsService {
 
       // Parent must be born at least MIN_PARENT_AGE years before child
       const parentAgeAtChildBirth = childBirthYear - parentBirthYear;
-      if (parentAgeAtChildBirth < MIN_PARENT_AGE) {
+      if (parentAgeAtChildBirth < PersonsService.MIN_PARENT_AGE) {
         throw new BadRequestException(
-          `Parent must be at least ${MIN_PARENT_AGE} years old when ${child.firstName} was born (born ${childBirthYear}). ` +
+          `Parent must be at least ${PersonsService.MIN_PARENT_AGE} years old when ${child.firstName} was born (born ${childBirthYear}). ` +
             `With birth year ${parentBirthYear}, parent would be ${parentAgeAtChildBirth} years old.`,
+        );
+      }
+
+      // Maximum parent age at child birth
+      if (parentAgeAtChildBirth > maxParentAge) {
+        throw new BadRequestException(
+          `Parent would be ${parentAgeAtChildBirth} years old when ${child.firstName} was born — maximum allowed is ${maxParentAge}`,
+        );
+      }
+
+      // Implicit lifespan: if no death date, assume max MAX_LIFESPAN years
+      if (
+        !parentDeathYear &&
+        parentAgeAtChildBirth > PersonsService.MAX_LIFESPAN
+      ) {
+        throw new BadRequestException(
+          `Parent has no death date but would need to be ${parentAgeAtChildBirth} years old for ${child.firstName} — ` +
+            `maximum assumed lifespan is ${PersonsService.MAX_LIFESPAN} years`,
         );
       }
 
@@ -393,6 +428,39 @@ export class PersonsService {
     return dateString.split('-').length === 1;
   }
 
+  /**
+   * Validates that a date-string year is >= MIN_BIRTH_YEAR.
+   */
+  private validateYearRange(
+    dateString: string | undefined,
+    label: string,
+  ): void {
+    if (!dateString) return;
+    const year = parseInt(dateString, 10); // parse the leading integer (handles negatives & full dates)
+    if (isNaN(year) || year < PersonsService.MIN_BIRTH_YEAR) {
+      throw new BadRequestException(
+        `${label} year must be at least ${PersonsService.MIN_BIRTH_YEAR} (got ${dateString})`,
+      );
+    }
+  }
+
+  /**
+   * Validates that death date is not before birth date (on the person itself).
+   */
+  private validateDeathAfterBirth(
+    birthDate?: string,
+    deathDate?: string,
+  ): void {
+    if (!birthDate || !deathDate) return;
+    const birthYear = this.extractYear(birthDate);
+    const deathYear = this.extractYear(deathDate);
+    if (deathYear < birthYear) {
+      throw new BadRequestException(
+        `Death year (${deathYear}) cannot be before birth year (${birthYear})`,
+      );
+    }
+  }
+
   private async validateParentDates(
     childBirthDate: string | undefined,
     fatherId?: number,
@@ -423,13 +491,26 @@ export class PersonsService {
           );
         }
 
-        // Minimum age check (14 years)
-        const minParentAge = 14;
+        // Minimum age check
         const yearsDiff = childBirthYear - fatherBirthYear;
 
-        if (yearsDiff < minParentAge) {
+        if (yearsDiff < PersonsService.MIN_PARENT_AGE) {
           throw new BadRequestException(
-            `Father must be at least ${minParentAge} years old when child is born`,
+            `Father must be at least ${PersonsService.MIN_PARENT_AGE} years old when child is born`,
+          );
+        }
+
+        // Maximum age check
+        if (yearsDiff > PersonsService.MAX_FATHER_AGE) {
+          throw new BadRequestException(
+            `Father would be ${yearsDiff} years old at child's birth — maximum allowed is ${PersonsService.MAX_FATHER_AGE}`,
+          );
+        }
+
+        // Implicit lifespan check when no death date
+        if (!father.deathDate && yearsDiff > PersonsService.MAX_LIFESPAN) {
+          throw new BadRequestException(
+            `Father (born ${father.birthDate}) has no death date but would need to be ${yearsDiff} years old — maximum assumed lifespan is ${PersonsService.MAX_LIFESPAN} years`,
           );
         }
       }
@@ -489,13 +570,26 @@ export class PersonsService {
           );
         }
 
-        // Minimum age check (14 years)
-        const minParentAge = 14;
+        // Minimum age check
         const yearsDiff = childBirthYear - motherBirthYear;
 
-        if (yearsDiff < minParentAge) {
+        if (yearsDiff < PersonsService.MIN_PARENT_AGE) {
           throw new BadRequestException(
-            `Mother must be at least ${minParentAge} years old when child is born`,
+            `Mother must be at least ${PersonsService.MIN_PARENT_AGE} years old when child is born`,
+          );
+        }
+
+        // Maximum age check
+        if (yearsDiff > PersonsService.MAX_MOTHER_AGE) {
+          throw new BadRequestException(
+            `Mother would be ${yearsDiff} years old at child's birth — maximum allowed is ${PersonsService.MAX_MOTHER_AGE}`,
+          );
+        }
+
+        // Implicit lifespan check when no death date
+        if (!mother.deathDate && yearsDiff > PersonsService.MAX_LIFESPAN) {
+          throw new BadRequestException(
+            `Mother (born ${mother.birthDate}) has no death date but would need to be ${yearsDiff} years old — maximum assumed lifespan is ${PersonsService.MAX_LIFESPAN} years`,
           );
         }
       }
@@ -590,6 +684,14 @@ export class PersonsService {
     const person = await this.findPersonById(id, treeId);
 
     // no need for check !person as findPersonById will throw if not found
+
+    // Validate year range on incoming dates
+    this.validateYearRange(updatePersonDto.birthDate, 'Birth');
+    this.validateYearRange(updatePersonDto.deathDate, 'Death');
+    this.validateDeathAfterBirth(
+      updatePersonDto.birthDate ?? person.birthDate,
+      updatePersonDto.deathDate ?? person.deathDate,
+    );
 
     // Validate parents if being updated (and not being cleared to null)
     if (

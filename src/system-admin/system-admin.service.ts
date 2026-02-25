@@ -219,9 +219,9 @@ export class SystemAdminService {
       this.treeRepository.count({
         where: { createdAt: MoreThanOrEqual(startOfMonth) },
       }),
-      // Note: Person entity doesn't have createdAt, so we can't filter by date
-      // We'll return 0 for this or add createdAt to Person entity later
-      Promise.resolve(0),
+      this.personRepository.count({
+        where: { createdAt: MoreThanOrEqual(startOfMonth) },
+      }),
       this.treeRepository.find({
         order: { createdAt: 'DESC' },
         take: 5,
