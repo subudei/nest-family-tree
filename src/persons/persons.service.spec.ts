@@ -34,7 +34,9 @@ function makePerson(overrides: Partial<Person> = {}): Person {
 
 // ─── Mock Factories ─────────────────────────────────────────────────────────
 
-type MockRepository<T = any> = Partial<Record<keyof Repository<T>, jest.Mock>>;
+type MockRepository<T extends object = any> = Partial<
+  Record<keyof Repository<T>, jest.Mock>
+>;
 
 function createMockRepository(): MockRepository {
   return {
