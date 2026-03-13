@@ -224,6 +224,82 @@ describe('PersonsService', () => {
         NotFoundException,
       );
     });
+
+    it('should reject when mother is an ancestor of father (cross-generational)', async () => {
+      // Grandmother (id: 1) is mother of Father (id: 2)
+      // User tries to create child with father=2, mother=1
+      const grandmother = makePerson({
+        id: 1,
+        gender: 'female',
+        firstName: 'GrandMa',
+        birthDate: '1930',
+        progenitor: true,
+      });
+      const father = makePerson({
+        id: 2,
+        gender: 'male',
+        firstName: 'Father',
+        birthDate: '1960',
+        motherId: 1,
+      });
+
+      personRepo.count!.mockResolvedValue(2);
+      personRepo.findOneBy!.mockImplementation((where: any) => {
+        if (where.id === 1) return Promise.resolve(grandmother);
+        if (where.id === 2) return Promise.resolve(father);
+        return Promise.resolve(null);
+      });
+
+      const dto: CreatePersonDto = {
+        firstName: 'Child',
+        lastName: 'Test',
+        gender: 'male',
+        birthDate: '1990',
+        fatherId: 2,
+        motherId: 1, // grandmother as mother!
+      };
+
+      await expect(service.create(dto, TREE_ID)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject when father is an ancestor of mother', async () => {
+      const grandfather = makePerson({
+        id: 1,
+        gender: 'male',
+        firstName: 'GrandPa',
+        birthDate: '1930',
+        progenitor: true,
+      });
+      const mother = makePerson({
+        id: 2,
+        gender: 'female',
+        firstName: 'Mother',
+        birthDate: '1960',
+        fatherId: 1,
+      });
+
+      personRepo.count!.mockResolvedValue(2);
+      personRepo.findOneBy!.mockImplementation((where: any) => {
+        if (where.id === 1) return Promise.resolve(grandfather);
+        if (where.id === 2) return Promise.resolve(mother);
+        return Promise.resolve(null);
+      });
+
+      const dto: CreatePersonDto = {
+        firstName: 'Child',
+        lastName: 'Test',
+        gender: 'female',
+        birthDate: '1990',
+        fatherId: 1, // grandfather as father!
+        motherId: 2,
+      };
+
+      await expect(service.create(dto, TREE_ID)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -718,6 +794,255 @@ describe('PersonsService', () => {
 
       expect(qr.rollbackTransaction).toHaveBeenCalled();
       expect(qr.release).toHaveBeenCalled();
+    });
+
+    // ── Date-validation tests for promoteAncestor ──────────────────────
+
+    it('should reject ancestor born after current progenitor', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Too',
+            lastName: 'Young',
+            gender: 'male',
+            birthDate: '1960',
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject ancestor born same year as progenitor', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Same',
+            lastName: 'Year',
+            gender: 'male',
+            birthDate: '1950',
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject ancestor too young (under MIN_PARENT_AGE gap)', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Kid',
+            lastName: 'Parent',
+            gender: 'male',
+            birthDate: '1945', // only 5 years older
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject father exceeding MAX_FATHER_AGE at progenitor birth', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Ancient',
+            lastName: 'Father',
+            gender: 'male',
+            birthDate: '1800', // 150 years older => exceeds 120
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject mother exceeding MAX_MOTHER_AGE at progenitor birth', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Ancient',
+            lastName: 'Mother',
+            gender: 'female',
+            birthDate: '1870', // 80 years older => exceeds 70
+            currentProgenitorId: 1,
+            relationship: 'mother',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject ancestor with death before birth', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Bad',
+            lastName: 'Dates',
+            gender: 'male',
+            birthDate: '1920',
+            deathDate: '1910',
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject ancestor who died too long before progenitor birth (year-only)', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Dead',
+            lastName: 'Early',
+            gender: 'male',
+            birthDate: '1900',
+            deathDate: '1940', // died 10 years before progenitor birth
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject ancestor who died >9 months before progenitor birth (full dates)', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950-12-01',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'Dead',
+            lastName: 'Father',
+            gender: 'male',
+            birthDate: '1920-01-01',
+            deathDate: '1949-01-01', // died ~23 months before progenitor
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid ancestor with proper age gap', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      const qr = dataSource._queryRunner;
+      qr.manager.create.mockReturnValue({
+        id: 99,
+        firstName: 'Valid',
+        lastName: 'Father',
+        gender: 'male',
+        birthDate: '1920',
+        progenitor: true,
+        treeId: TREE_ID,
+      });
+      qr.manager.save.mockImplementation((p) => Promise.resolve(p));
+      qr.manager.update.mockResolvedValue(undefined);
+
+      const result = await service.promoteAncestor(
+        {
+          firstName: 'Valid',
+          lastName: 'Father',
+          gender: 'male',
+          birthDate: '1920', // 30 years older — valid
+          currentProgenitorId: 1,
+          relationship: 'father',
+        },
+        TREE_ID,
+      );
+
+      expect(result.firstName).toBe('Valid');
+      expect(result.progenitor).toBe(true);
+    });
+
+    it('should reject invalid birth year range', async () => {
+      const currentProgenitor = makePerson({
+        id: 1,
+        progenitor: true,
+        birthDate: '1950',
+      });
+      personRepo.findOneBy!.mockResolvedValue(currentProgenitor);
+
+      await expect(
+        service.promoteAncestor(
+          {
+            firstName: 'BC',
+            lastName: 'Person',
+            gender: 'male',
+            birthDate: '-500',
+            currentProgenitorId: 1,
+            relationship: 'father',
+          },
+          TREE_ID,
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -63,6 +63,64 @@ export class PersonsService {
     return false;
   }
 
+  /**
+   * Checks if personA is an ancestor of personB by walking up personB's parent chain.
+   */
+  private async isAncestorOf(
+    personAId: number,
+    personBId: number,
+  ): Promise<boolean> {
+    const visited = new Set<number>();
+    const stack: number[] = [personBId];
+
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (!currentId) continue;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      if (currentId === personAId) return true;
+
+      const current = await this.personRepository.findOneBy({ id: currentId });
+      if (!current) continue;
+
+      if (current.fatherId && !visited.has(current.fatherId))
+        stack.push(current.fatherId);
+      if (current.motherId && !visited.has(current.motherId))
+        stack.push(current.motherId);
+    }
+
+    return false;
+  }
+
+  /**
+   * Validates that two parents don't have an ancestor-descendant relationship.
+   * If mother is an ancestor of father (or vice versa), the resulting data breaks
+   * tree rendering (infinite recursion through step-child logic) and is genealogically invalid.
+   */
+  private async validateParentsNotRelated(
+    fatherId?: number,
+    motherId?: number,
+  ): Promise<void> {
+    if (!fatherId || !motherId) return;
+
+    // Check if mother is an ancestor of father
+    if (await this.isAncestorOf(motherId, fatherId)) {
+      throw new BadRequestException(
+        'Cannot assign these parents: the mother is an ancestor of the father. ' +
+          "A person's parents cannot have an ancestor-descendant relationship.",
+      );
+    }
+
+    // Check if father is an ancestor of mother
+    if (await this.isAncestorOf(fatherId, motherId)) {
+      throw new BadRequestException(
+        'Cannot assign these parents: the father is an ancestor of the mother. ' +
+          "A person's parents cannot have an ancestor-descendant relationship.",
+      );
+    }
+  }
+
   async create(
     createPersonDto: CreatePersonDto,
     treeId: string,
@@ -83,6 +141,12 @@ export class PersonsService {
       createPersonDto.fatherId,
       createPersonDto.motherId,
       treeId,
+    );
+
+    // Step 2.5: Validate parents don't have ancestor-descendant relationship
+    await this.validateParentsNotRelated(
+      createPersonDto.fatherId,
+      createPersonDto.motherId,
     );
 
     // Step 3: Validate birth dates make sense (when adding child to existing parents)
@@ -322,6 +386,19 @@ export class PersonsService {
       parent.birthDate,
       parent.deathDate,
     );
+
+    // Validate that the new parent is not in an ancestor-descendant relationship
+    // with each child's existing other parent
+    const otherParentField = parentType === 'father' ? 'motherId' : 'fatherId';
+    for (const child of children) {
+      const otherParentId = child[otherParentField];
+      if (otherParentId) {
+        await this.validateParentsNotRelated(
+          parentType === 'father' ? parentId : otherParentId,
+          parentType === 'mother' ? parentId : otherParentId,
+        );
+      }
+    }
 
     // Link children to parent
     await this.linkChildrenToParentInternal(parent, children);
@@ -769,6 +846,22 @@ export class PersonsService {
       }
     }
 
+    // Validate parents don't have ancestor-descendant relationship
+    {
+      const effectiveFatherId =
+        updatePersonDto.fatherId !== undefined
+          ? (updatePersonDto.fatherId ?? undefined)
+          : (person.fatherId ?? undefined);
+      const effectiveMotherId =
+        updatePersonDto.motherId !== undefined
+          ? (updatePersonDto.motherId ?? undefined)
+          : (person.motherId ?? undefined);
+      await this.validateParentsNotRelated(
+        effectiveFatherId,
+        effectiveMotherId,
+      );
+    }
+
     // Track old parent IDs before update (for orphan cleanup)
     const oldFatherId = person.fatherId;
     const oldMotherId = person.motherId;
@@ -900,6 +993,82 @@ export class PersonsService {
       throw new BadRequestException(
         `New ${dto.relationship} must be ${expectedGender}, not ${dto.gender}`,
       );
+    }
+
+    // ── Date validations (same rules as create) ──────────────────────────
+    this.validateYearRange(dto.birthDate, 'Birth');
+    this.validateYearRange(dto.deathDate, 'Death');
+    this.validateDeathAfterBirth(dto.birthDate, dto.deathDate);
+
+    // The new ancestor is the PARENT of the current progenitor,
+    // so validate as parent→child date rules.
+    if (dto.birthDate && currentProgenitor.birthDate) {
+      const parentBirthYear = this.extractYear(dto.birthDate);
+      const childBirthYear = this.extractYear(currentProgenitor.birthDate);
+
+      // Parent must be born before child
+      if (parentBirthYear >= childBirthYear) {
+        throw new BadRequestException(
+          `New ancestor (born ${dto.birthDate}) must be born before the current progenitor (born ${currentProgenitor.birthDate})`,
+        );
+      }
+
+      const ageDiff = childBirthYear - parentBirthYear;
+      const maxParentAge =
+        dto.gender === 'male'
+          ? PersonsService.MAX_FATHER_AGE
+          : PersonsService.MAX_MOTHER_AGE;
+
+      // Min parent age check
+      if (ageDiff < PersonsService.MIN_PARENT_AGE) {
+        throw new BadRequestException(
+          `New ancestor must be at least ${PersonsService.MIN_PARENT_AGE} years older than the current progenitor (age difference: ${ageDiff})`,
+        );
+      }
+
+      // Max parent age check
+      if (ageDiff > maxParentAge) {
+        throw new BadRequestException(
+          `New ancestor would be ${ageDiff} years old at progenitor's birth — maximum allowed is ${maxParentAge}`,
+        );
+      }
+
+      // Implicit lifespan check when no death date on new ancestor
+      if (!dto.deathDate && ageDiff > PersonsService.MAX_LIFESPAN) {
+        throw new BadRequestException(
+          `New ancestor (born ${dto.birthDate}) has no death date but would need to be ${ageDiff} years old — maximum assumed lifespan is ${PersonsService.MAX_LIFESPAN} years`,
+        );
+      }
+    }
+
+    // If new ancestor has a death date, they must have been alive at conception
+    if (dto.deathDate && currentProgenitor.birthDate) {
+      const deathYear = this.extractYear(dto.deathDate);
+      const childBirthYear = this.extractYear(currentProgenitor.birthDate);
+
+      if (this.isYearOnly(dto.deathDate)) {
+        // Year-only: allow 1-year buffer for conception
+        if (childBirthYear > deathYear + 1) {
+          throw new BadRequestException(
+            `New ancestor died in ${dto.deathDate}, too early for progenitor born in ${currentProgenitor.birthDate}`,
+          );
+        }
+      } else if (
+        this.isFullDate(dto.deathDate) &&
+        this.isFullDate(currentProgenitor.birthDate)
+      ) {
+        // Full dates: 9-month conception rule
+        const parentDeath = new Date(dto.deathDate);
+        const childBirth = new Date(currentProgenitor.birthDate);
+        const nineMonthsAfterDeath = new Date(parentDeath);
+        nineMonthsAfterDeath.setMonth(nineMonthsAfterDeath.getMonth() + 9);
+
+        if (childBirth > nineMonthsAfterDeath) {
+          throw new BadRequestException(
+            `New ancestor died on ${dto.deathDate}, more than 9 months before progenitor's birth (${currentProgenitor.birthDate})`,
+          );
+        }
+      }
     }
 
     const queryRunner = this.dataSource.createQueryRunner();

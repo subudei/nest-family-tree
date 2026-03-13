@@ -1,6 +1,6 @@
 # Family Tree Application — Master Source of Truth
 
-> **Last updated:** February 25, 2026 (v3 — validation hardening + frontend sync)
+> **Last updated:** March 13, 2026 (v6 — cross-generational parent fix: 6 suites, 199 tests)
 > **Purpose:** Single reference document for any AI agent or developer working on this project. Covers what exists, what works, what's broken, and what's planned.
 
 ---
@@ -205,7 +205,7 @@ A **Family Tree Visualization Application** with two separate codebases:
 
 ### 3.4 Business Logic Highlights
 
-- **Person validation (backend):** Parent gender check, minimum parent age (14), maximum parent age (father ≤ 120, mother ≤ 70), implicit max lifespan (120 years when no death date), birth year ≥ 1, death-after-birth check, birth date logic with partial-date support, father 9-month conception rule, cycle detection (BFS), orphan prevention
+- **Person validation (backend):** Parent gender check, minimum parent age (14), maximum parent age (father ≤ 120, mother ≤ 70), implicit max lifespan (120 years when no death date), birth year ≥ 1, death-after-birth check, birth date logic with partial-date support, father 9-month conception rule, cycle detection (BFS), orphan prevention, **cross-generational parent rejection** (neither parent can be an ancestor of the other — prevents infinite tree recursion)
 - **Frontend validation sync:** All 3 person forms (AddPersonForm, AddParentForm, EditPersonForm) enforce the same constants client-side: `MIN_PARENT_AGE=14`, `MAX_FATHER_AGE=120`, `MAX_MOTHER_AGE=70`, `MAX_LIFESPAN=120`, `MIN_BIRTH_YEAR=1`. Parent dropdowns are age-filtered to only show eligible candidates.
 - **Promote ancestor:** Transactional — creates new person, updates current progenitor's fatherId/motherId, transfers progenitor flag
 - **Orphan cleanup:** BFS from progenitor, deletes any disconnected persons
@@ -326,16 +326,17 @@ All in `src/api/` — uses fetch with auth headers from localStorage. Auto-redir
 
 ### 🔴 Known Issues
 
-| Issue                                                   | Location                                                                       | Impact                                                                           |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| ~~**JWT secret mismatch**~~                             | ~~SystemAdminGuard vs JWT strategy~~                                           | ✅ **FIXED Feb 25, 2026** — both now use same fallback                           |
-| **Person parent columns are plain ints, not relations** | `person.entity.ts` — `fatherId`/`motherId` are `@Column()` not `@ManyToOne()`  | No cascade/FK integrity at DB level, manual lookups required                     |
-| **Partnership has no FK constraints**                   | `partnership.entity.ts` — `treeId`, `person1Id`, `person2Id` are plain columns | No referential integrity                                                         |
-| ~~**Person entity missing `createdAt`**~~               | ~~`person.entity.ts`~~                                                         | ✅ **FIXED Feb 25, 2026** — `createdAt`/`updatedAt` added, dashboard query fixed |
-| **Email service is a dev stub**                         | `email.service.ts` — logs to console, no transport library                     | Password reset emails never actually send                                        |
-| **No email library installed**                          | `package.json`                                                                 | Need nodemailer, SendGrid, or similar                                            |
-| ~~**Tests are broken/nonexistent**~~                    | ~~All spec files are stubs~~                                                   | ✅ **FIXED Feb 25, 2026** — 3 suites, 72 tests, all passing                      |
-| **`synchronize: true`**                                 | `app.module.ts`                                                                | Unsafe for production — can drop data                                            |
+| Issue                                                   | Location                                                                       | Impact                                                                                    |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| ~~**JWT secret mismatch**~~                             | ~~SystemAdminGuard vs JWT strategy~~                                           | ✅ **FIXED Feb 25, 2026** — both now use same fallback                                    |
+| **Person parent columns are plain ints, not relations** | `person.entity.ts` — `fatherId`/`motherId` are `@Column()` not `@ManyToOne()`  | No cascade/FK integrity at DB level, manual lookups required                              |
+| **Partnership has no FK constraints**                   | `partnership.entity.ts` — `treeId`, `person1Id`, `person2Id` are plain columns | No referential integrity                                                                  |
+| ~~**Person entity missing `createdAt`**~~               | ~~`person.entity.ts`~~                                                         | ✅ **FIXED Feb 25, 2026** — `createdAt`/`updatedAt` added, dashboard query fixed          |
+| **Email service is a dev stub**                         | `email.service.ts` — logs to console, no transport library                     | Password reset emails never actually send                                                 |
+| **No email library installed**                          | `package.json`                                                                 | Need nodemailer, SendGrid, or similar                                                     |
+| ~~**Tests are broken/nonexistent**~~                    | ~~All spec files are stubs~~                                                   | ✅ **FIXED Feb 25, 2026** — 5 suites, 124 tests, all passing                              |
+| ~~**Cross-generational parents cause infinite loop**~~  | ~~Frontend tree rendering + backend missing validation~~                       | ✅ **FIXED Mar 13, 2026** — backend rejects ancestor-as-parent, frontend guards recursion |
+| **`synchronize: true`**                                 | `app.module.ts`                                                                | Unsafe for production — can drop data                                                     |
 
 ### 🟡 Minor Loose Ends
 
@@ -351,52 +352,41 @@ All in `src/api/` — uses fetch with auth headers from localStorage. Auto-redir
 
 ## 7. Testing Status
 
-### Current State: ✅ 3 Suites, 72 Tests, All Passing
+### Current State: ✅ 6 Suites, 199 Tests, All Passing
 
-| File                                     | Status            | Details                                                                                                                                                                       |
-| ---------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app.controller.spec.ts`             | ✅ Passing (1)    | Tests `getHello()`                                                                                                                                                            |
-| `src/persons/persons.controller.spec.ts` | ✅ Passing (14)   | resolveTreeId, CRUD delegation, partnership endpoints                                                                                                                         |
-| `src/persons/persons.service.spec.ts`    | ✅ Passing (57)   | Create, date validation, find, delete, update, promoteAncestor, linkChildren, deleteOrphans, children validation, partnerships, max parent age, implicit lifespan, year range |
-| `test/app.e2e-spec.ts`                   | Default scaffold  | Tests `GET /` → `'Hello World!'`                                                                                                                                              |
-| **Frontend**                             | **No test files** | No test runner configured (no jest/vitest in next-family-tree)                                                                                                                |
+| File                                     | Status            | Details                                                                                                                                                                                                            |
+| ---------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/app.controller.spec.ts`             | ✅ Passing (1)    | Tests `getHello()`                                                                                                                                                                                                 |
+| `src/auth/auth.service.spec.ts`          | ✅ Passing (36)   | Register, loginOwner, loginGuest, getMe, getProfile, updateProfile, forgotPassword, resetPassword                                                                                                                  |
+| `src/persons/persons.controller.spec.ts` | ✅ Passing (14)   | resolveTreeId, CRUD delegation, partnership endpoints                                                                                                                                                              |
+| `src/persons/persons.service.spec.ts`    | ✅ Passing (59)   | Create, date validation, find, delete, update, promoteAncestor, linkChildren, deleteOrphans, children validation, partnerships, max parent age, implicit lifespan, year range, cross-generational parent rejection |
+| `src/trees/trees.service.spec.ts`        | ✅ Passing (15)   | findById, findByGuestUsername, findAllByOwner, isGuestUsernameTaken, create, update, delete                                                                                                                        |
+| `test/app.e2e-spec.ts`                   | ✅ Passing (63)   | Auth flow (16), Person CRUD (16), Partnerships (5), Promote Ancestor (2), Multi-Tree (8), System Admin (7), Access Control (6) — in-memory SQLite                                                                  |
+| **Frontend**                             | **No test files** | No test runner configured (no jest/vitest in next-family-tree)                                                                                                                                                     |
 
 ### Testing Plan (Priority Order)
 
-#### Phase T1: Fix & Establish Backend Unit Tests
+#### Phase T1: Fix & Establish Backend Unit Tests ✅ COMPLETE
 
-1. **Fix broken spec files** — provide proper mock providers
-2. **PersonsService tests** (highest value — most complex logic):
-   - Person creation with parent validation
-   - Gender enforcement on parents
-   - Birth date validation (partial dates, minimum parent age)
-   - Cycle detection (ancestry loops)
-   - Orphan detection logic
-   - Promote ancestor transaction
-   - Link children to parent
-3. **AuthService tests:**
-   - Registration (User + Tree creation, password hashing)
-   - Owner login (correct/wrong password, email lookup)
-   - Guest login (correct/wrong password)
-   - Password reset token generation + validation
-   - JWT payload structure
-4. **TreesService tests:**
-   - CRUD operations
-   - Guest username uniqueness
-   - Ownership verification
+1. ~~**Fix broken spec files** — provide proper mock providers~~
+2. ~~**PersonsService tests** (57 tests)~~
+3. ~~**AuthService tests** (36 tests)~~
+4. ~~**TreesService tests** (15 tests)~~
 5. **SystemAdminService tests:**
    - Seeding from env vars
    - Dashboard stats aggregation
    - Export format
    - Admin CRUD (self-deactivation block)
 
-#### Phase T2: Backend Integration / E2E Tests
+#### Phase T2: Backend Integration / E2E Tests ✅ COMPLETE (60 tests)
 
-1. **Auth flow E2E:** Register → Login → Access tree → Guest login → Read-only check
-2. **Person CRUD E2E:** Create progenitor → Add spouse → Add child → Edit → Delete
-3. **Partnership E2E:** Create → Update → Divorce
-4. **Multi-tree E2E:** Create second tree → Switch → Verify isolation
-5. **System admin E2E:** Login → Dashboard → Manage trees → Manage admins
+1. ~~**Auth flow E2E:** Register → Login → Access tree → Guest login → Read-only check~~
+2. ~~**Person CRUD E2E:** Create progenitor → Add child → Add spouse via children → Edit → Delete~~
+3. ~~**Partnership E2E:** Create → Update → Divorce~~
+4. ~~**Promote Ancestor E2E:** Promote to new root → Verify progenitor change~~
+5. ~~**Multi-tree E2E:** Create second tree → Switch → Verify isolation → Delete cascade~~
+6. ~~**System admin E2E:** Login → Dashboard → Manage trees → Export~~
+7. ~~**Access control E2E:** Unauthenticated rejection, guest read-only, cross-owner isolation~~
 
 #### Phase T3: Frontend Tests
 
@@ -424,12 +414,12 @@ All in `src/api/` — uses fetch with auth headers from localStorage. Auto-redir
 - [x] ~~Write unit tests for PersonsService~~ (done Feb 25, 2026 — 57 tests covering create, date validation, find, delete, update, promoteAncestor, linkChildren, deleteOrphans, children validation, partnerships, max parent age, implicit lifespan, year range)
 - [x] ~~Write unit tests for PersonsController~~ (done Feb 25, 2026 — 14 tests covering resolveTreeId, CRUD endpoints, partnership endpoints)
 - [x] ~~Fix JWT secret mismatch between SystemAdminGuard and JWT strategy~~ (done Feb 25, 2026)
-- [ ] Write unit tests for AuthService
-- [ ] Write unit tests for TreesService
+- [x] ~~Write unit tests for AuthService~~ (done Feb 25, 2026 — 36 tests covering register, loginOwner, loginGuest, getMe, getProfile, updateProfile, forgotPassword, resetPassword)
+- [x] ~~Write unit tests for TreesService~~ (done Feb 25, 2026 — 15 tests covering findById, findByGuestUsername, findAllByOwner, isGuestUsernameTaken, create, update, delete)
 - [ ] Write E2E tests for core flows
 - [ ] Set up frontend testing (Vitest + RTL)
 
-> **Current test status: 3 suites, 72 tests, all passing**
+> **Current test status: 6 suites, 199 tests, all passing**
 
 ### Phase 2: Code Quality & Refactoring
 
@@ -565,16 +555,13 @@ PersonMedia (new entity, 1:many)
 
 These documents contain **detailed implementation plans** but may be partially outdated. Use this source-of-truth document for the actual current state.
 
-| Document                                                                          | Location            | What It Covers                                                  | Status                                                                                      |
-| --------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [MIGRATION_AND_DEPLOYMENT.md](../MIGRATION_AND_DEPLOYMENT.md)                     | Backend root        | SQLite → Postgres migration guide, deployment to Railway/Vercel | **Still relevant** — migration not started yet                                              |
-| [AUTH_IMPLEMENTATION.md](AUTH_IMPLEMENTATION.md)                                  | Backend `.github/`  | Auth system design and implementation tasks                     | **Phases 1-4 completed**, Phase 5-6 partially done                                          |
-| [SYSTEM_ADMIN_IMPLEMENTATION.md](SYSTEM_ADMIN_IMPLEMENTATION.md)                  | Backend `.github/`  | System admin feature design                                     | **Backend fully implemented**, frontend fully implemented                                   |
-| [frontend_app.md](frontend_app.md)                                                | Backend `.github/`  | Frontend architecture documentation                             | **Outdated** — describes mock data phase, frontend has since been fully integrated with API |
-| [COPILOT_INSTRUCTIONS.md](../../next-family-tree/.github/COPILOT_INSTRUCTIONS.md) | Frontend `.github/` | Frontend architecture for AI agents                             | **Outdated** — same as frontend_app.md, describes mock data era                             |
-| [README.md](../../next-family-tree/.github/README.md)                             | Frontend `.github/` | Project overview, future backend specs                          | **Partially outdated** — backend specs differ from actual implementation                    |
-| [next_steps.md](../../next-family-tree/.github/next_steps.md)                     | Frontend `.github/` | React Query setup, form improvements, progenitor management     | **Phases 1-2 completed**, Phases 3-5 mostly done                                            |
-| [BUSINESS_LOGIC.md](../../next-family-tree/BUSINESS_LOGIC.md)                     | Frontend root       | Business model options, SaaS scaling plans                      | **Future planning document** — none implemented yet                                         |
+| Document                                                      | Location          | What It Covers                                                      | Status                                              |
+| ------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| [MIGRATION_AND_DEPLOYMENT.md](../MIGRATION_AND_DEPLOYMENT.md) | Backend root      | SQLite → Postgres migration guide, deployment to Railway/Vercel     | **Still relevant** — migration not started yet      |
+| [BUSINESS_LOGIC.md](../../next-family-tree/BUSINESS_LOGIC.md) | Frontend root     | Business model options, SaaS scaling plans                          | **Future planning document** — none implemented yet |
+| [TREE_RENDERING.md](TREE_RENDERING.md)                        | Backend `.github` | How the frontend tree rendering model works, node recursion, guards | **Current** — created Mar 13, 2026                  |
+
+> **Cleaned up Mar 13, 2026:** Removed 5 outdated docs (AUTH_IMPLEMENTATION.md, SYSTEM_ADMIN_IMPLEMENTATION.md, frontend_app.md, COPILOT_INSTRUCTIONS.md, README.md, next_steps.md) — all superseded by this file.
 
 ---
 
